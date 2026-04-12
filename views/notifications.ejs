@@ -1,0 +1,37 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title">Notifications</span>
+    </div>
+    <div class="page-content">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">All Notifications</div>
+        </div>
+        <% if (notifs.length === 0) { %>
+        <div class="empty-state"><span class="empty-icon">🔔</span><h3>All Caught Up</h3><p>No notifications yet.</p></div>
+        <% } else { %>
+        <% for (const n of notifs) { %>
+        <div class="notif-item <%= n.is_read ? '' : 'unread' %>">
+          <div class="notif-dot <%= n.is_read ? 'read' : '' %>"></div>
+          <div>
+            <div class="notif-msg">
+              <%= n.message %>
+              <% if (n.ticket_id) { %> — <a href="/tickets/<%= n.ticket_id %>" style="color:var(--secondary);"><%= n.ticket_number || '' %></a><% } %>
+            </div>
+            <div class="notif-time"><%= new Date(n.created_at).toLocaleString() %></div>
+          </div>
+        </div>
+        <% } %>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="/public/js/app.js"></script>
+</body>
+</html>

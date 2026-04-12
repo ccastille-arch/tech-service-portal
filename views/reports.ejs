@@ -1,0 +1,84 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title">Reports & Analytics</span>
+      <div class="top-bar-actions">
+        <select id="range-select" class="filter-select" style="min-height:36px;" onchange="loadCharts()">
+          <option value="7">Last 7 Days</option>
+          <option value="30" selected>Last 30 Days</option>
+          <option value="90">Last 90 Days</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" id="btn-ai-report">🤖 AI Summary</button>
+      </div>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+
+      <!-- AI Narrative -->
+      <div id="ai-report-container" class="mb-3 hidden">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🤖 AI Operations Summary</div>
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('ai-report-container').classList.add('hidden')">✕</button>
+          </div>
+          <div id="ai-report-content" class="ai-narrative">Generating…</div>
+        </div>
+      </div>
+
+      <!-- SLA Gauge -->
+      <div class="d-flex gap-2 mb-3 flex-wrap">
+        <div class="chart-card" style="flex:0 0 200px;text-align:center;">
+          <div class="chart-title">SLA Compliance</div>
+          <div class="sla-gauge">
+            <div class="sla-pct" id="sla-pct">—%</div>
+            <div class="sla-label">Met vs Total</div>
+            <div style="font-size:.8rem;color:var(--text-muted);margin-top:.5rem;" id="sla-detail"></div>
+          </div>
+        </div>
+        <div class="chart-card" style="flex:1;min-width:260px;">
+          <div class="chart-title">SLA Status Breakdown</div>
+          <canvas id="chart-sla"></canvas>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card" style="grid-column:1/-1;">
+          <div class="chart-title">Open vs Closed Over Time</div>
+          <canvas id="chart-daily" style="max-height:200px;"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Tickets by Priority</div>
+          <canvas id="chart-priority"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Tickets per Tech</div>
+          <canvas id="chart-tech"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Avg Resolution Time by Category (hrs)</div>
+          <canvas id="chart-resolution"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Busiest Well Sites</div>
+          <canvas id="chart-sites"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Hours Logged per Tech</div>
+          <canvas id="chart-hours"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const csrfToken = '<%= csrfToken %>';
+</script>
+<script src="/public/js/app.js"></script>
+<script src="/public/js/reports.js"></script>
+</body>
+</html>

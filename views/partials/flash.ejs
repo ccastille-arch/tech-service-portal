@@ -1,0 +1,12 @@
+<% if (flash && flash.success) { %>
+<div class="flash flash-success" id="flash-msg">
+  <span><%= flash.success %></span>
+  <button class="flash-close" onclick="this.parentElement.remove()">✕</button>
+</div>
+<% } %>
+<% if (flash && flash.error) { %>
+<div class="flash flash-error" id="flash-msg">
+  <span><%= flash.error %></span>
+  <button class="flash-close" onclick="this.parentElement.remove()">✕</button>
+</div>
+<% } %>

@@ -1,0 +1,121 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title">Work Orders</span>
+      <div class="top-bar-actions">
+        <a href="/tickets/new" class="btn btn-primary btn-sm">+ New Ticket</a>
+      </div>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+
+      <!-- Filters -->
+      <form method="GET" action="/tickets" id="filter-form">
+        <div class="filters-bar">
+          <div class="filter-group search-input">
+            <input class="form-control filter-select" type="search" name="q" value="<%= filters.q || '' %>" placeholder="Search tickets…" style="min-height:36px;">
+          </div>
+          <div class="filter-group">
+            <label>Status</label>
+            <select class="filter-select" name="status" onchange="this.form.submit()">
+              <option value="">All</option>
+              <% for (const s of ['open','in-progress','on-hold','completed','closed']) { %>
+              <option value="<%= s %>" <%= filters.status === s ? 'selected' : '' %>><%= s %></option>
+              <% } %>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Priority</label>
+            <select class="filter-select" name="priority" onchange="this.form.submit()">
+              <option value="">All</option>
+              <% for (const p of ['P1','P2','P3','P4']) { %>
+              <option value="<%= p %>" <%= filters.priority === p ? 'selected' : '' %>><%= p %></option>
+              <% } %>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Assigned</label>
+            <select class="filter-select" name="assigned" onchange="this.form.submit()">
+              <option value="">All</option>
+              <% for (const t of techs) { %>
+              <option value="<%= t.id %>" <%= filters.assigned === t.id ? 'selected' : '' %>><%= t.name %></option>
+              <% } %>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Category</label>
+            <select class="filter-select" name="category" onchange="this.form.submit()">
+              <option value="">All</option>
+              <% for (const c of ['electrical','mechanical','instrumentation','controls','general']) { %>
+              <option value="<%= c %>" <%= filters.category === c ? 'selected' : '' %>><%= c %></option>
+              <% } %>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>From</label>
+            <input class="filter-select" type="date" name="from" value="<%= filters.from || '' %>">
+          </div>
+          <div class="filter-group">
+            <label>To</label>
+            <input class="filter-select" type="date" name="to" value="<%= filters.to || '' %>">
+          </div>
+          <button type="submit" class="btn btn-secondary btn-sm">Filter</button>
+          <a href="/tickets" class="btn btn-ghost btn-sm">Reset</a>
+        </div>
+      </form>
+
+      <div class="card">
+        <% if (tickets.length === 0) { %>
+        <div class="empty-state">
+          <span class="empty-icon">📋</span>
+          <h3>No Work Orders Found</h3>
+          <p>Try adjusting your filters or <a href="/tickets/new" style="color:var(--secondary);">create a new ticket</a>.</p>
+        </div>
+        <% } else { %>
+        <div style="margin-bottom:.75rem;font-size:.85rem;color:var(--text-muted);"><%= tickets.length %> ticket<%= tickets.length !== 1 ? 's' : '' %></div>
+        <div class="table-container">
+          <table class="table">
+            <thead><tr>
+              <th><a href="?sort=ticket_number&order=<%= filters.sort==='ticket_number'&&filters.order==='asc'?'desc':'asc' %>&<%= new URLSearchParams({...filters,sort:undefined,order:undefined}).toString() %>">#</a></th>
+              <th>Title</th>
+              <th><a href="?sort=priority&order=<%= filters.sort==='priority'&&filters.order==='asc'?'desc':'asc' %>">Priority</a></th>
+              <th><a href="?sort=status&order=<%= filters.sort==='status'&&filters.order==='asc'?'desc':'asc' %>">Status</a></th>
+              <th>Category</th>
+              <th>Assigned To</th>
+              <th>Site</th>
+              <th>SLA</th>
+              <th><a href="?sort=due_date&order=<%= filters.sort==='due_date'&&filters.order==='asc'?'desc':'asc' %>">Due</a></th>
+              <th><a href="?sort=created_at&order=<%= filters.sort==='created_at'&&filters.order==='asc'?'desc':'asc' %>">Created</a></th>
+            </tr></thead>
+            <tbody>
+              <% for (const t of tickets) { %>
+              <tr>
+                <td><a href="/tickets/<%= t.id %>" class="ticket-link"><%= t.ticket_number %></a></td>
+                <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                  <a href="/tickets/<%= t.id %>" style="color:var(--text-bright);text-decoration:none;"><%= t.title %></a>
+                </td>
+                <td><span class="badge badge-<%= t.priority.toLowerCase() %>"><%= t.priority %></span></td>
+                <td><span class="badge badge-<%= t.status %>"><%= t.status %></span></td>
+                <td style="font-size:.85rem;color:var(--text-muted);text-transform:capitalize;"><%= t.category %></td>
+                <td style="font-size:.85rem;"><%= t.assigned_name || '<span style="color:var(--text-muted)">—</span>' %></td>
+                <td style="font-size:.8rem;color:var(--text-muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><%= t.well_site || t.location || '—' %></td>
+                <td><span class="badge badge-sla-<%= t.slaStatus %>"><%= t.slaStatus %></span></td>
+                <td style="font-size:.8rem;color:var(--text-muted);white-space:nowrap;"><%= t.due_date ? new Date(t.due_date).toLocaleDateString() : '—' %></td>
+                <td style="font-size:.8rem;color:var(--text-muted);white-space:nowrap;"><%= new Date(t.created_at).toLocaleDateString() %></td>
+              </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="/public/js/app.js"></script>
+</body>
+</html>

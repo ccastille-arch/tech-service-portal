@@ -1,0 +1,300 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title"><%= ticket.ticket_number %></span>
+      <div class="top-bar-actions">
+        <a href="/tickets" class="btn btn-ghost btn-sm">← Back</a>
+      </div>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+
+      <!-- Header -->
+      <div class="ticket-header">
+        <div>
+          <div class="ticket-number"><%= ticket.ticket_number %></div>
+          <div class="ticket-title"><%= ticket.title %></div>
+          <div class="ticket-meta">
+            <span class="badge badge-<%= ticket.priority.toLowerCase() %>"><%= ticket.priority %></span>
+            <span class="badge badge-<%= ticket.status %>"><%= ticket.status %></span>
+            <span class="badge badge-sla-<%= ticket.slaStatus %>">SLA: <%= ticket.slaStatus %></span>
+            <span style="font-size:.8rem;color:var(--text-muted);text-transform:capitalize;">📂 <%= ticket.category %></span>
+            <% if (ticket.well_site) { %><span style="font-size:.8rem;color:var(--text-muted);">📍 <%= ticket.well_site %></span><% } %>
+            <% if (ticket.location && !ticket.well_site) { %><span style="font-size:.8rem;color:var(--text-muted);">📍 <%= ticket.location %></span><% } %>
+          </div>
+        </div>
+        <div class="d-flex gap-1 flex-wrap">
+          <% if (ticket.status !== 'closed') { %>
+          <form method="POST" action="/tickets/<%= ticket.id %>/escalate" style="display:inline;">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <button type="submit" class="btn btn-warning btn-sm">⬆ Escalate</button>
+          </form>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="ticket-grid">
+        <!-- Left Column -->
+        <div>
+          <!-- Tabs -->
+          <div class="tabs">
+            <button class="tab active" onclick="switchTab(this,'tab-details')">Details</button>
+            <button class="tab" onclick="switchTab(this,'tab-comments')">Comments (<%= comments.length %>)</button>
+            <button class="tab" onclick="switchTab(this,'tab-time')">Time (<%= (totalMinutes/60).toFixed(1) %>h)</button>
+            <button class="tab" onclick="switchTab(this,'tab-attachments')">Files (<%= attachments.length %>)</button>
+            <button class="tab" onclick="switchTab(this,'tab-history')">History (<%= history.length %>)</button>
+          </div>
+
+          <!-- Details Tab -->
+          <div class="tab-panel active" id="tab-details">
+            <div class="card mb-2">
+              <form method="POST" action="/tickets/<%= ticket.id %>">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <div class="form-row mb-2">
+                  <div class="form-group">
+                    <label class="form-label">Status</label>
+                    <select class="form-control" name="status">
+                      <% for (const s of ['open','in-progress','on-hold','completed','closed']) { %>
+                      <option value="<%= s %>" <%= ticket.status === s ? 'selected' : '' %>><%= s %></option>
+                      <% } %>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Priority</label>
+                    <select class="form-control" name="priority">
+                      <% for (const p of ['P1','P2','P3','P4']) { %>
+                      <option value="<%= p %>" <%= ticket.priority === p ? 'selected' : '' %>><%= p %></option>
+                      <% } %>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row mb-2">
+                  <div class="form-group">
+                    <label class="form-label">Assigned To</label>
+                    <select class="form-control" name="assigned_to">
+                      <option value="">— Unassigned —</option>
+                      <% for (const t of techs) { %>
+                      <option value="<%= t.id %>" <%= ticket.assigned_to === t.id ? 'selected' : '' %>><%= t.name %></option>
+                      <% } %>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Category</label>
+                    <select class="form-control" name="category">
+                      <% for (const c of ['electrical','mechanical','instrumentation','controls','general']) { %>
+                      <option value="<%= c %>" <%= ticket.category === c ? 'selected' : '' %>><%= c %></option>
+                      <% } %>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row mb-2">
+                  <div class="form-group">
+                    <label class="form-label">Due Date</label>
+                    <input class="form-control" type="datetime-local" name="due_date" value="<%= ticket.due_date ? ticket.due_date.slice(0,16) : '' %>">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Well Site</label>
+                    <input class="form-control" type="text" name="well_site" value="<%= ticket.well_site || '' %>">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Description</label>
+                  <textarea class="form-control" name="description" rows="4"><%= ticket.description || '' %></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+              </form>
+            </div>
+          </div>
+
+          <!-- Comments Tab -->
+          <div class="tab-panel" id="tab-comments">
+            <div id="comments">
+              <% if (comments.length === 0) { %>
+              <div class="empty-state" style="padding:1.5rem;"><p>No comments yet. Add the first note below.</p></div>
+              <% } %>
+              <% for (const c of comments) { %>
+              <div class="comment">
+                <div class="comment-avatar"><%= c.author_name.charAt(0).toUpperCase() %></div>
+                <div class="comment-body">
+                  <div class="comment-header">
+                    <span class="comment-author"><%= c.author_name %></span>
+                    <span class="comment-time"><%= new Date(c.created_at).toLocaleString() %></span>
+                  </div>
+                  <div class="comment-text"><%= c.body %></div>
+                </div>
+              </div>
+              <% } %>
+            </div>
+            <form method="POST" action="/tickets/<%= ticket.id %>/comments" style="margin-top:1rem;">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <div class="form-group">
+                <label class="form-label">Add Note / Comment</label>
+                <textarea class="form-control" name="body" rows="3" placeholder="Field update, note, or status comment…" required></textarea>
+              </div>
+              <button type="submit" class="btn btn-primary">Post Comment</button>
+            </form>
+          </div>
+
+          <!-- Time Tab -->
+          <div class="tab-panel" id="tab-time">
+            <!-- Time Tracker -->
+            <div class="time-tracker <%= activeEntry ? 'active' : '' %>" id="time-tracker">
+              <div style="font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;color:<%= activeEntry ? 'var(--success)' : 'var(--text-muted)' %>;">
+                <%= activeEntry ? '⏱ CLOCKED IN' : 'Time Tracker' %>
+              </div>
+              <div class="time-display" id="timer-display">
+                <% if (activeEntry) { %>
+                <span id="live-timer" data-start="<%= activeEntry.clock_in %>">--:--:--</span>
+                <% } else { %>00:00:00<% } %>
+              </div>
+              <div class="time-total">Total: <%= (totalMinutes/60).toFixed(2) %> hours (<%= Math.round(totalMinutes) %> min)</div>
+              <div style="margin-top:.75rem;display:flex;gap:.5rem;">
+                <% if (!activeEntry) { %>
+                <form method="POST" action="/tickets/<%= ticket.id %>/timelog/start">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                  <button type="submit" class="btn btn-success btn-lg">▶ Clock In</button>
+                </form>
+                <% } else { %>
+                <form method="POST" action="/tickets/<%= ticket.id %>/timelog/stop">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                  <button type="submit" class="btn btn-danger btn-lg">⏹ Clock Out</button>
+                </form>
+                <% } %>
+              </div>
+            </div>
+            <!-- Time log table -->
+            <% if (timeEntries.length > 0) { %>
+            <div class="table-container mt-2">
+              <table class="table">
+                <thead><tr><th>Tech</th><th>Clock In</th><th>Clock Out</th><th>Duration</th></tr></thead>
+                <tbody>
+                  <% for (const e of timeEntries) { %>
+                  <tr>
+                    <td><%= e.tech_name %></td>
+                    <td style="font-size:.85rem;"><%= new Date(e.clock_in).toLocaleString() %></td>
+                    <td style="font-size:.85rem;"><%= e.clock_out ? new Date(e.clock_out).toLocaleString() : '<span style="color:var(--success)">Active</span>' %></td>
+                    <td style="font-size:.85rem;"><%= e.duration_minutes ? (e.duration_minutes/60).toFixed(2) + ' hrs' : '—' %></td>
+                  </tr>
+                  <% } %>
+                </tbody>
+              </table>
+            </div>
+            <% } %>
+          </div>
+
+          <!-- Attachments Tab -->
+          <div class="tab-panel" id="tab-attachments">
+            <form method="POST" action="/tickets/<%= ticket.id %>/attachments" enctype="multipart/form-data" style="margin-bottom:1.25rem;">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <div class="d-flex gap-1 align-center">
+                <input class="form-control" type="file" name="file" accept="image/*,.pdf" style="flex:1;">
+                <button type="submit" class="btn btn-secondary">Upload</button>
+              </div>
+              <div class="form-hint">Images (JPEG, PNG, WEBP, HEIC) or PDF. Max 10MB.</div>
+            </form>
+            <% if (attachments.length === 0) { %>
+            <div class="empty-state" style="padding:1.5rem;"><p>No attachments yet.</p></div>
+            <% } else { %>
+            <div class="attachments-grid">
+              <% for (const a of attachments) { %>
+              <a href="/public/uploads/<%= a.filename %>" target="_blank" class="attachment-item">
+                <% if (a.mimetype && a.mimetype.startsWith('image/')) { %>
+                <img src="/public/uploads/<%= a.filename %>" alt="<%= a.original_name %>" class="attachment-preview">
+                <% } else { %>
+                <div class="attachment-icon">📄</div>
+                <% } %>
+                <div class="attachment-name"><%= a.original_name %></div>
+              </a>
+              <% } %>
+            </div>
+            <% } %>
+          </div>
+
+          <!-- History Tab -->
+          <div class="tab-panel" id="tab-history">
+            <div class="timeline">
+              <% if (history.length === 0) { %>
+              <div class="empty-state" style="padding:1.5rem;"><p>No history yet.</p></div>
+              <% } %>
+              <% for (const h of history) { %>
+              <div class="timeline-item">
+                <div class="timeline-dot <%= h.field_changed==='status'?'primary':'' %>"></div>
+                <div class="timeline-time"><%= new Date(h.changed_at).toLocaleString() %></div>
+                <div class="timeline-text">
+                  <strong><%= h.actor_name %></strong> changed <em><%= h.field_changed %></em>
+                  <% if (h.old_value) { %>from <span style="color:var(--text-muted)"><%= h.old_value %></span><% } %>
+                  to <strong style="color:var(--text-bright)"><%= h.new_value %></strong>
+                </div>
+              </div>
+              <% } %>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Sidebar -->
+        <div>
+          <div class="card mb-2">
+            <div class="card-header"><div class="card-title">Ticket Info</div></div>
+            <div style="font-size:.875rem;">
+              <div style="display:flex;justify-content:space-between;padding:.4rem 0;border-bottom:1px solid var(--border);">
+                <span style="color:var(--text-muted);">Created by</span>
+                <span><%= ticket.creator_name %></span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:.4rem 0;border-bottom:1px solid var(--border);">
+                <span style="color:var(--text-muted);">Created</span>
+                <span><%= new Date(ticket.created_at).toLocaleDateString() %></span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:.4rem 0;border-bottom:1px solid var(--border);">
+                <span style="color:var(--text-muted);">Updated</span>
+                <span><%= new Date(ticket.updated_at).toLocaleDateString() %></span>
+              </div>
+              <% if (ticket.due_date) { %>
+              <div style="display:flex;justify-content:space-between;padding:.4rem 0;border-bottom:1px solid var(--border);">
+                <span style="color:var(--text-muted);">Due</span>
+                <span class="<%= ticket.slaStatus === 'breached' ? 'text-danger' : '' %>">
+                  <%= new Date(ticket.due_date).toLocaleString() %>
+                </span>
+              </div>
+              <% } %>
+              <% if (ticket.resolved_at) { %>
+              <div style="display:flex;justify-content:space-between;padding:.4rem 0;">
+                <span style="color:var(--text-muted);">Resolved</span>
+                <span style="color:var(--success)"><%= new Date(ticket.resolved_at).toLocaleDateString() %></span>
+              </div>
+              <% } %>
+            </div>
+          </div>
+
+          <% if (ticket.ai_category_suggestion || ticket.ai_priority_suggestion) { %>
+          <div class="card mb-2">
+            <div class="card-header"><div class="card-title">AI Suggestions</div></div>
+            <% if (ticket.ai_category_suggestion) { %>
+            <div style="font-size:.85rem;margin-bottom:.5rem;">
+              <span style="color:var(--text-muted);">Category:</span>
+              <strong style="color:var(--secondary)"><%= ticket.ai_category_suggestion %></strong>
+            </div>
+            <% } %>
+            <% if (ticket.ai_priority_suggestion) { %>
+            <div style="font-size:.85rem;">
+              <span style="color:var(--text-muted);">Priority:</span>
+              <strong style="color:var(--primary)"><%= ticket.ai_priority_suggestion %></strong>
+            </div>
+            <% } %>
+          </div>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const csrfToken = '<%= csrfToken %>';
+</script>
+<script src="/public/js/app.js"></script>
+<script src="/public/js/ticket-detail.js"></script>
+</body>
+</html>

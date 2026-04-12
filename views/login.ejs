@@ -1,0 +1,27 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="login-page">
+  <div class="login-bg"></div>
+  <div class="login-card">
+    <div class="login-logo">
+      <span class="logo-icon">🔧</span>
+      <h1>TECH SERVICE</h1>
+      <p class="subtitle">Work Order Portal</p>
+    </div>
+    <% if (error) { %><div class="login-error">⚠ <%= error %></div><% } %>
+    <form method="POST" action="/login" autocomplete="on">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="form-group">
+        <label class="form-label" for="username">Username or Email</label>
+        <input class="form-control" type="text" id="username" name="username" required autocomplete="username" placeholder="cody / austin.whitehurst">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <input class="form-control" type="password" id="password" name="password" required autocomplete="current-password" placeholder="••••••••••">
+      </div>
+      <button type="submit" class="btn btn-primary btn-block btn-lg" style="margin-top:.5rem;">Sign In</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>

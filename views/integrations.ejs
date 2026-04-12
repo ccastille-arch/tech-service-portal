@@ -1,0 +1,124 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title">Integrations</span>
+      <div class="top-bar-actions">
+        <button class="btn btn-primary btn-sm" onclick="openModal('add-modal')">+ Add Integration</button>
+      </div>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+
+      <div class="card mb-3">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Connected Systems</div>
+            <div class="card-subtitle">Configure external system connectors, credentials, sync rules, and field mappings.</div>
+          </div>
+        </div>
+        <% if (integrations.length === 0) { %>
+        <div class="empty-state"><span class="empty-icon">🔗</span><h3>No Integrations</h3><p>Add your first connector.</p></div>
+        <% } %>
+        <% const icons = {mlink:'⚙️',enbase:'🛢️',netsuite:'💼',fieldaware:'🔧',email:'📧',sms:'📱',telephony:'📞',documents:'📁'} %>
+        <% for (const i of integrations) { %>
+        <div class="integration-card">
+          <div class="integration-icon"><%= icons[i.type] || '🔗' %></div>
+          <div class="integration-info">
+            <div class="integration-name"><%= i.name %></div>
+            <div class="integration-type"><%= i.type %> · <%= i.environment %></div>
+          </div>
+          <div class="integration-status">
+            <div class="status-dot <%= i.enabled ? 'enabled' : '' %>"></div>
+            <span style="font-size:.8rem;color:<%= i.enabled ? 'var(--success)' : 'var(--text-muted)' %>;">
+              <%= i.enabled ? 'Enabled' : 'Disabled' %>
+            </span>
+          </div>
+          <a href="/integrations/<%= i.id %>" class="btn btn-ghost btn-sm">Configure →</a>
+        </div>
+        <% } %>
+      </div>
+
+      <!-- Connector Architecture Overview -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">Source of Truth Model</div></div>
+        <div style="font-size:.875rem;line-height:1.8;color:var(--text);">
+          <p style="margin-bottom:.75rem;">This platform is the <strong style="color:var(--primary);">intelligence hub</strong> — external systems synchronize to it, not the other way around for core data.</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+            <div>
+              <div style="font-size:.65rem;letter-spacing:.12em;text-transform:uppercase;color:var(--success);margin-bottom:.4rem;">This Platform Owns</div>
+              <ul style="list-style:none;font-size:.85rem;color:var(--text-muted);">
+                <li>✅ Asset intelligence</li>
+                <li>✅ Support history</li>
+                <li>✅ Alert logic</li>
+                <li>✅ Report scheduling</li>
+                <li>✅ AI support workflows</li>
+                <li>✅ Customer-facing dashboards</li>
+              </ul>
+            </div>
+            <div>
+              <div style="font-size:.65rem;letter-spacing:.12em;text-transform:uppercase;color:var(--secondary);margin-bottom:.4rem;">External Systems Feed</div>
+              <ul style="list-style:none;font-size:.85rem;color:var(--text-muted);">
+                <li>⚙️ MLink — Telemetry</li>
+                <li>🛢️ Enbase — Compression monitoring</li>
+                <li>💼 NetSuite — Financial master (future)</li>
+                <li>🔧 FieldAware — Field execution (future)</li>
+                <li>📧 Email/SMS — Notifications (future)</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Integration Modal -->
+<div class="modal-overlay" id="add-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Add Integration</div>
+      <button class="modal-close" onclick="closeModal('add-modal')">✕</button>
+    </div>
+    <form method="POST" action="/integrations">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="form-group">
+        <label class="form-label">Name *</label>
+        <input class="form-control" type="text" name="name" required placeholder="e.g. My MLink Instance">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Type *</label>
+          <select class="form-control" name="type" required>
+            <% for (const t of connectorTypes) { %>
+            <option value="<%= t %>"><%= t %></option>
+            <% } %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Environment</label>
+          <select class="form-control" name="environment">
+            <option value="sandbox">Sandbox</option>
+            <option value="production">Production</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Config JSON</label>
+        <textarea class="form-control" name="config_json" rows="3" placeholder='{"base_url": "https://...", "sync_objects": ["data"]}'></textarea>
+        <div class="form-hint">Optional. Non-sensitive config only. Put API keys in credentials after creation.</div>
+      </div>
+      <div class="d-flex gap-1">
+        <button type="submit" class="btn btn-primary">Create Integration</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal('add-modal')">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/public/js/app.js"></script>
+</body>
+</html>

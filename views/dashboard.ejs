@@ -1,0 +1,164 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title">Dashboard</span>
+      <div class="top-bar-actions">
+        <a href="/tickets/new" class="btn btn-primary btn-sm">+ New Ticket</a>
+      </div>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+
+      <!-- Stats Row -->
+      <div class="stats-grid">
+        <div class="stat-card secondary">
+          <div class="stat-value"><%= stats.open %></div>
+          <div class="stat-label">Open</div>
+        </div>
+        <div class="stat-card primary">
+          <div class="stat-value"><%= stats.inProgress %></div>
+          <div class="stat-label">In Progress</div>
+        </div>
+        <div class="stat-card warning">
+          <div class="stat-value"><%= stats.onHold %></div>
+          <div class="stat-label">On Hold</div>
+        </div>
+        <div class="stat-card danger">
+          <div class="stat-value"><%= stats.overdue %></div>
+          <div class="stat-label">Overdue</div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-value"><%= stats.completedToday %></div>
+          <div class="stat-label">Closed Today</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value"><%= slaCompliance %>%</div>
+          <div class="stat-label">SLA Compliance</div>
+        </div>
+      </div>
+
+      <!-- Priority + Tech Breakdown -->
+      <div class="d-flex gap-2 flex-wrap mb-3">
+        <div class="card" style="flex:1;min-width:280px;">
+          <div class="card-header">
+            <div class="card-title">Priority Breakdown</div>
+          </div>
+          <div class="priority-breakdown">
+            <% for (const [p, cls] of [['P1','p1'],['P2','p2'],['P3','p3'],['P4','p4']]) { %>
+            <div class="priority-item">
+              <div>
+                <div class="priority-count <%= cls %>-count"><%= priorityCounts[p] %></div>
+                <div class="priority-label"><%= p %></div>
+              </div>
+            </div>
+            <% } %>
+          </div>
+        </div>
+        <div class="card" style="flex:1;min-width:280px;">
+          <div class="card-header">
+            <div class="card-title">Assigned Tickets</div>
+          </div>
+          <% for (const tech of techBreakdown) { %>
+          <div class="d-flex justify-between align-center" style="padding:.4rem 0;border-bottom:1px solid var(--border);">
+            <span style="font-weight:600;"><%= tech.name %></span>
+            <span class="badge badge-p3"><%= tech.cnt %> open</span>
+          </div>
+          <% } %>
+        </div>
+      </div>
+
+      <!-- My Tickets (tech view) -->
+      <% if (user.role === 'tech' && myTickets.length > 0) { %>
+      <div class="card mb-3">
+        <div class="card-header">
+          <div class="card-title">My Open Tickets</div>
+          <a href="/tickets?assigned=<%= user.id %>" class="btn btn-ghost btn-sm">View All</a>
+        </div>
+        <div class="table-container">
+          <table class="table">
+            <thead><tr>
+              <th>Ticket</th><th>Title</th><th>Priority</th><th>Status</th><th>SLA</th><th>Due</th>
+            </tr></thead>
+            <tbody>
+              <% for (const t of myTickets) { %>
+              <tr>
+                <td><a href="/tickets/<%= t.id %>" class="ticket-link"><%= t.ticket_number %></a></td>
+                <td><%= t.title %></td>
+                <td><span class="badge badge-<%= t.priority.toLowerCase() %>"><%= t.priority %></span></td>
+                <td><span class="badge badge-<%= t.status %>"><%= t.status %></span></td>
+                <td><span class="badge badge-sla-<%= t.slaStatus %>"><%= t.slaStatus %></span></td>
+                <td style="color:var(--text-muted);font-size:.85rem;"><%= t.due_date ? new Date(t.due_date).toLocaleDateString() : '—' %></td>
+              </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <% } %>
+
+      <!-- Recent Tickets (admin) -->
+      <% if (user.role === 'admin' && recentTickets.length > 0) { %>
+      <div class="card mb-3">
+        <div class="card-header">
+          <div class="card-title">Recent Work Orders</div>
+          <a href="/tickets" class="btn btn-ghost btn-sm">View All</a>
+        </div>
+        <div class="table-container">
+          <table class="table">
+            <thead><tr>
+              <th>Ticket</th><th>Title</th><th>Priority</th><th>Status</th><th>Assigned</th><th>SLA</th>
+            </tr></thead>
+            <tbody>
+              <% for (const t of recentTickets) { %>
+              <tr>
+                <td><a href="/tickets/<%= t.id %>" class="ticket-link"><%= t.ticket_number %></a></td>
+                <td><%= t.title %></td>
+                <td><span class="badge badge-<%= t.priority.toLowerCase() %>"><%= t.priority %></span></td>
+                <td><span class="badge badge-<%= t.status %>"><%= t.status %></span></td>
+                <td style="font-size:.85rem;"><%= t.assigned_name || '<span style="color:var(--text-muted)">Unassigned</span>' %></td>
+                <td><span class="badge badge-sla-<%= t.slaStatus %>"><%= t.slaStatus %></span></td>
+              </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <% } %>
+
+      <!-- Recent Activity -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Recent Activity</div>
+        </div>
+        <% if (activity.length === 0) { %>
+        <div class="empty-state" style="padding:1.5rem;">
+          <p>No activity yet.</p>
+        </div>
+        <% } else { %>
+        <div class="timeline">
+          <% for (const a of activity) { %>
+          <div class="timeline-item">
+            <div class="timeline-dot <%= a.field_changed === 'status' ? 'primary' : '' %>"></div>
+            <div class="timeline-time"><%= new Date(a.changed_at).toLocaleString() %></div>
+            <div class="timeline-text">
+              <strong><%= a.actor_name %></strong> changed
+              <a href="/tickets/<%= a.ticket_id %>" style="color:var(--secondary);"><%= a.ticket_number %></a>
+              <em><%= a.field_changed %></em>:
+              <% if (a.old_value) { %><span style="color:var(--text-muted)"><%= a.old_value %></span> →<% } %>
+              <span style="color:var(--text-bright);font-weight:600;"><%= a.new_value %></span>
+            </div>
+          </div>
+          <% } %>
+        </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="/public/js/app.js"></script>
+</body>
+</html>

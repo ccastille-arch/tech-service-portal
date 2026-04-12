@@ -1,0 +1,93 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title">New Work Order</span>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+      <div class="card" style="max-width:760px;">
+        <div class="card-header">
+          <div class="card-title">Create Work Order</div>
+        </div>
+        <form method="POST" action="/tickets">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <div class="form-group">
+            <label class="form-label">Title *</label>
+            <input class="form-control" type="text" name="title" id="ticket-title" required placeholder="Brief description of the issue">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea class="form-control" name="description" id="ticket-description" rows="4" placeholder="Detailed description of the work required…"></textarea>
+            <div style="display:flex;gap:.5rem;margin-top:.5rem;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-ai-category">🤖 Auto-Categorize</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-ai-priority">🤖 Suggest Priority</button>
+            </div>
+            <div id="ai-category-result" class="ai-suggestion hidden"></div>
+            <div id="ai-priority-result" class="ai-suggestion hidden"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Priority *</label>
+              <select class="form-control" name="priority" id="priority-select" required>
+                <option value="P3">P3 — Medium</option>
+                <option value="P1">P1 — Critical</option>
+                <option value="P2">P2 — High</option>
+                <option value="P4">P4 — Low</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Category *</label>
+              <select class="form-control" name="category" id="category-select" required>
+                <option value="general">General</option>
+                <option value="electrical">Electrical</option>
+                <option value="mechanical">Mechanical</option>
+                <option value="instrumentation">Instrumentation</option>
+                <option value="controls">Controls</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Assigned To</label>
+              <select class="form-control" name="assigned_to">
+                <option value="">— Unassigned —</option>
+                <% for (const t of techs) { %>
+                <option value="<%= t.id %>"><%= t.name %></option>
+                <% } %>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Due Date</label>
+              <input class="form-control" type="datetime-local" name="due_date" value="<%= defaultDueDate %>">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Location</label>
+              <input class="form-control" type="text" name="location" placeholder="e.g. Field B, Section 3">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Well Site</label>
+              <input class="form-control" type="text" name="well_site" placeholder="e.g. Pratt #14-H">
+            </div>
+          </div>
+          <div class="d-flex gap-1">
+            <button type="submit" class="btn btn-primary btn-lg">Create Work Order</button>
+            <a href="/tickets" class="btn btn-ghost btn-lg">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const csrfToken = '<%= csrfToken %>';
+</script>
+<script src="/public/js/app.js"></script>
+<script src="/public/js/ticket-detail.js"></script>
+</body>
+</html>

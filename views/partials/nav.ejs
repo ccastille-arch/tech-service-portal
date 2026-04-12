@@ -1,0 +1,36 @@
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <span class="logo-text">TECH SERVICE</span>
+    <span class="logo-sub">Work Order Portal</span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/dashboard" class="nav-link <%= locals.title && title.includes('Dashboard') ? 'active' : '' %>">
+      <span class="nav-icon">📊</span> Dashboard
+    </a>
+    <a href="/tickets/new" class="nav-link">
+      <span class="nav-icon">➕</span> New Work Order
+    </a>
+    <a href="/tickets" class="nav-link <%= locals.title && title.includes('Work Order') ? 'active' : '' %>">
+      <span class="nav-icon">📋</span> All Work Orders
+    </a>
+    <a href="/notifications" class="nav-link <%= locals.title && title.includes('Notification') ? 'active' : '' %>">
+      <span class="nav-icon">🔔</span> Notifications
+      <% if (unreadCount > 0) { %><span class="nav-badge"><%= unreadCount %></span><% } %>
+    </a>
+    <% if (user && user.role === 'admin') { %>
+    <span class="nav-section-label">Admin</span>
+    <a href="/reports" class="nav-link <%= locals.title && title.includes('Report') ? 'active' : '' %>">
+      <span class="nav-icon">📈</span> Reports & Analytics
+    </a>
+    <a href="/integrations" class="nav-link <%= locals.title && title.includes('Integration') ? 'active' : '' %>">
+      <span class="nav-icon">🔗</span> Integrations
+    </a>
+    <% } %>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-name"><%= user ? user.name : '' %></div>
+    <div class="user-role"><%= user ? user.role : '' %></div>
+    <a href="/logout" class="btn btn-ghost btn-sm mt-1" style="width:100%;justify-content:center;">Log Out</a>
+  </div>
+</aside>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>

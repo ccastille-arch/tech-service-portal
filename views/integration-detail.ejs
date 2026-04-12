@@ -1,0 +1,276 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title"><%= integration.name %></span>
+      <div class="top-bar-actions">
+        <a href="/integrations" class="btn btn-ghost btn-sm">← Back</a>
+        <button class="btn btn-secondary btn-sm" id="btn-test-conn">⚡ Test Connection</button>
+        <form method="POST" action="/integrations/<%= integration.id %>/sync" style="display:inline;" id="sync-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button type="submit" class="btn btn-primary btn-sm">↻ Sync Now</button>
+        </form>
+      </div>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+
+      <div id="test-result" class="mb-2 hidden"></div>
+
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab(this,'itab-config')">Configuration</button>
+        <button class="tab" onclick="switchTab(this,'itab-credentials')">Credentials (<%= credentials.length %>)</button>
+        <button class="tab" onclick="switchTab(this,'itab-mappings')">Field Mappings (<%= mappings.length %>)</button>
+        <button class="tab" onclick="switchTab(this,'itab-queue')">Sync Queue (<%= queue.length %>)</button>
+        <button class="tab" onclick="switchTab(this,'itab-logs')">Logs (<%= logs.length %>)</button>
+      </div>
+
+      <!-- Config Tab -->
+      <div class="tab-panel active" id="itab-config">
+        <div class="card">
+          <form method="POST" action="/integrations/<%= integration.id %>">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Name</label>
+                <input class="form-control" type="text" name="name" value="<%= integration.name %>" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Environment</label>
+                <select class="form-control" name="environment">
+                  <option value="sandbox" <%= integration.environment === 'sandbox' ? 'selected' : '' %>>Sandbox</option>
+                  <option value="production" <%= integration.environment === 'production' ? 'selected' : '' %>>Production</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Enabled</label>
+              <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;">
+                <input type="checkbox" name="enabled" <%= integration.enabled ? 'checked' : '' %> style="width:18px;height:18px;">
+                <span style="font-size:.9rem;">Enable this integration</span>
+              </label>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Config JSON (non-sensitive)</label>
+              <textarea class="form-control" name="config_json" rows="5" style="font-family:monospace;font-size:.85rem;"><%= integration.config_json || '{}' %></textarea>
+              <div class="form-hint">base_url, sync_objects, poll_interval_minutes, etc. No API keys here.</div>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Configuration</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Credentials Tab -->
+      <div class="tab-panel" id="itab-credentials">
+        <div class="card mb-2">
+          <div class="card-header"><div class="card-title">Stored Credentials</div></div>
+          <% if (credentials.length === 0) { %>
+          <div class="empty-state" style="padding:1.5rem;"><p>No credentials stored. Add your first key below.</p></div>
+          <% } else { %>
+          <% for (const c of credentials) { %>
+          <div class="credential-row">
+            <span class="cred-key"><%= c.key_name %></span>
+            <span class="cred-value"><%= c.masked %></span>
+            <span style="font-size:.75rem;color:var(--text-muted);"><%= c.is_sandbox ? 'sandbox' : 'production' %></span>
+            <form method="POST" action="/integrations/<%= integration.id %>/credentials/<%= c.id %>/delete" style="display:inline;">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Delete this credential?')">✕</button>
+            </form>
+          </div>
+          <% } %>
+          <% } %>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Add / Rotate Credential</div></div>
+          <form method="POST" action="/integrations/<%= integration.id %>/credentials">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Key Name</label>
+                <input class="form-control" type="text" name="key_name" placeholder="e.g. api_key, session_token" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Value (encrypted at rest)</label>
+                <input class="form-control" type="password" name="value" placeholder="Paste secret value" required autocomplete="new-password">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Expires At</label>
+                <input class="form-control" type="date" name="expires_at">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Type</label>
+                <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;margin-top:.75rem;">
+                  <input type="checkbox" name="is_sandbox" checked style="width:16px;height:16px;">
+                  <span>Sandbox credential</span>
+                </label>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Credential</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Field Mappings Tab -->
+      <div class="tab-panel" id="itab-mappings">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Field Mappings</div>
+            <div class="card-subtitle">Map source fields from external system to internal fields</div>
+          </div>
+          <form method="POST" action="/integrations/<%= integration.id %>/mappings">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <div id="mappings-list">
+              <% for (let i = 0; i < (mappings.length || 1); i++) { const m = mappings[i] || {}; %>
+              <div class="form-row mapping-row" style="margin-bottom:.5rem;align-items:end;">
+                <div class="form-group" style="margin-bottom:0;">
+                  <label class="form-label"><%= i === 0 ? 'Object Type' : '' %></label>
+                  <input class="form-control" type="text" name="mappings[<%= i %>][object_type]" value="<%= m.object_type || '' %>" placeholder="telemetry">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                  <label class="form-label"><%= i === 0 ? 'Source Field' : '' %></label>
+                  <input class="form-control" type="text" name="mappings[<%= i %>][source_field]" value="<%= m.source_field || '' %>" placeholder="device_id">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                  <label class="form-label"><%= i === 0 ? 'Target Field' : '' %></label>
+                  <input class="form-control" type="text" name="mappings[<%= i %>][target_field]" value="<%= m.target_field || '' %>" placeholder="external_id">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                  <label class="form-label"><%= i === 0 ? 'Transform' : '' %></label>
+                  <select class="form-control" name="mappings[<%= i %>][transform_rule]">
+                    <% for (const t of ['direct','uppercase','lowercase','date_iso','trim']) { %>
+                    <option value="<%= t %>" <%= (m.transform_rule||'direct') === t ? 'selected' : '' %>><%= t %></option>
+                    <% } %>
+                  </select>
+                </div>
+              </div>
+              <% } %>
+            </div>
+            <div style="margin:.75rem 0;display:flex;gap:.5rem;">
+              <button type="button" class="btn btn-ghost btn-sm" onclick="addMappingRow()">+ Add Row</button>
+              <button type="submit" class="btn btn-primary btn-sm">Save Mappings</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Sync Queue Tab -->
+      <div class="tab-panel" id="itab-queue">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Sync Queue</div></div>
+          <% if (queue.length === 0) { %>
+          <div class="empty-state" style="padding:1.5rem;"><p>Sync queue is empty.</p></div>
+          <% } else { %>
+          <div class="table-container">
+            <table class="table">
+              <thead><tr><th>Object</th><th>Direction</th><th>Status</th><th>Retries</th><th>Error</th><th>Created</th><th></th></tr></thead>
+              <tbody>
+                <% for (const q of queue) { %>
+                <tr class="<%= q.status==='failed'?'log-row-failed':'' %>">
+                  <td><%= q.object_type %></td>
+                  <td><%= q.direction %></td>
+                  <td><span class="badge badge-<%= q.status === 'completed' ? 'completed' : q.status === 'failed' ? 'p1' : q.status === 'pending' ? 'open' : 'in-progress' %>"><%= q.status %></span></td>
+                  <td><%= q.retry_count %>/<%= q.max_retries %></td>
+                  <td style="font-size:.75rem;color:var(--danger);max-width:150px;overflow:hidden;text-overflow:ellipsis;"><%= q.error || '—' %></td>
+                  <td style="font-size:.75rem;"><%= new Date(q.created_at).toLocaleDateString() %></td>
+                  <td>
+                    <% if (q.status === 'failed' || q.status === 'conflict') { %>
+                    <form method="POST" action="/integrations/<%= integration.id %>/queue/<%= q.id %>/reprocess" style="display:inline;">
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <button type="submit" class="btn btn-ghost btn-sm">↻</button>
+                    </form>
+                    <% } %>
+                  </td>
+                </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+          <% } %>
+        </div>
+      </div>
+
+      <!-- Logs Tab -->
+      <div class="tab-panel" id="itab-logs">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Integration Logs</div></div>
+          <% if (logs.length === 0) { %>
+          <div class="empty-state" style="padding:1.5rem;"><p>No logs yet. Run a test or sync.</p></div>
+          <% } else { %>
+          <div class="table-container">
+            <table class="table">
+              <thead><tr><th>Action</th><th>Status</th><th>Duration</th><th>Error</th><th>Time</th></tr></thead>
+              <tbody>
+                <% for (const l of logs) { %>
+                <tr class="<%= l.status === 'success' ? 'log-row-success' : l.status === 'failed' ? 'log-row-failed' : '' %>">
+                  <td style="font-size:.85rem;"><%= l.action %></td>
+                  <td><span class="badge badge-<%= l.status === 'success' ? 'completed' : l.status === 'failed' ? 'p1' : 'open' %>"><%= l.status %></span></td>
+                  <td style="font-size:.85rem;"><%= l.duration_ms != null ? l.duration_ms + 'ms' : '—' %></td>
+                  <td style="font-size:.75rem;color:var(--danger);max-width:200px;overflow:hidden;text-overflow:ellipsis;"><%= l.error || '—' %></td>
+                  <td style="font-size:.75rem;white-space:nowrap;"><%= new Date(l.timestamp).toLocaleString() %></td>
+                </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const integrationId = '<%= integration.id %>';
+const csrfToken = '<%= csrfToken %>';
+let mappingIndex = <%= mappings.length || 1 %>;
+
+function addMappingRow() {
+  const list = document.getElementById('mappings-list');
+  const div = document.createElement('div');
+  div.className = 'form-row mapping-row';
+  div.style.marginBottom = '.5rem';
+  div.style.alignItems = 'end';
+  div.innerHTML = `
+    <div class="form-group" style="margin-bottom:0;"><input class="form-control" type="text" name="mappings[${mappingIndex}][object_type]" placeholder="telemetry"></div>
+    <div class="form-group" style="margin-bottom:0;"><input class="form-control" type="text" name="mappings[${mappingIndex}][source_field]" placeholder="source_field"></div>
+    <div class="form-group" style="margin-bottom:0;"><input class="form-control" type="text" name="mappings[${mappingIndex}][target_field]" placeholder="target_field"></div>
+    <div class="form-group" style="margin-bottom:0;">
+      <select class="form-control" name="mappings[${mappingIndex}][transform_rule]">
+        <option value="direct">direct</option><option value="uppercase">uppercase</option>
+        <option value="lowercase">lowercase</option><option value="date_iso">date_iso</option><option value="trim">trim</option>
+      </select>
+    </div>`;
+  list.appendChild(div);
+  mappingIndex++;
+}
+
+document.getElementById('btn-test-conn').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-test-conn');
+  btn.disabled = true; btn.textContent = '⏳ Testing…';
+  const result = document.getElementById('test-result');
+  result.classList.remove('hidden');
+  result.className = 'mb-2 flash flash-success';
+  result.textContent = 'Testing connection…';
+  try {
+    const r = await fetch(`/integrations/${integrationId}/test`, {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': csrfToken }
+    });
+    const data = await r.json();
+    result.className = `mb-2 flash ${data.ok ? 'flash-success' : 'flash-error'}`;
+    result.textContent = data.message;
+  } catch(e) {
+    result.className = 'mb-2 flash flash-error';
+    result.textContent = e.message;
+  }
+  btn.disabled = false; btn.textContent = '⚡ Test Connection';
+});
+</script>
+<script src="/public/js/app.js"></script>
+</body>
+</html>
