@@ -1,0 +1,119 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title">Call Log</span>
+      <div class="top-bar-actions">
+        <a href="/integrations" class="btn btn-ghost btn-sm">⚙ Configure Twilio</a>
+      </div>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+
+      <!-- Webhook config instructions -->
+      <div class="card mb-3" style="border-color:var(--primary);background:var(--primary-dim);">
+        <div class="card-header" style="border-bottom-color:rgba(255,107,0,.2);">
+          <div class="card-title" style="color:var(--primary);">📞 Twilio Webhook Configuration</div>
+        </div>
+        <div style="font-size:.875rem;line-height:1.9;">
+          <p style="margin-bottom:.75rem;">Point your Twilio number's Voice webhook to:</p>
+          <code style="background:var(--bg-mid);padding:.35rem .75rem;border-radius:4px;color:var(--secondary);font-size:.85rem;display:block;margin-bottom:.75rem;">
+            https://tech-service-portal.vercel.app/voice/inbound
+          </code>
+          <p style="color:var(--text-muted);">In Twilio Console → Phone Numbers → Your Number → Voice &amp; Fax → "A call comes in" → Webhook → paste URL above → HTTP POST.</p>
+          <p style="margin-top:.5rem;color:var(--text-muted);">Also set the Status Callback URL to:</p>
+          <code style="background:var(--bg-mid);padding:.35rem .75rem;border-radius:4px;color:var(--text-muted);font-size:.85rem;display:block;">
+            https://tech-service-portal.vercel.app/voice/status
+          </code>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid mb-3" style="grid-template-columns:repeat(4,1fr);">
+        <div class="stat-card secondary">
+          <div class="stat-value"><%= calls.length %></div>
+          <div class="stat-label">Total Calls</div>
+        </div>
+        <div class="stat-card primary">
+          <div class="stat-value"><%= calls.filter(c => c.ticket_id).length %></div>
+          <div class="stat-label">Tickets Created</div>
+        </div>
+        <div class="stat-card warning">
+          <div class="stat-value"><%= calls.filter(c => c.status === 'voicemail').length %></div>
+          <div class="stat-label">Voicemails</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value"><%= calls.length > 0 ? Math.round(calls.filter(c=>c.duration_seconds).reduce((s,c)=>s+c.duration_seconds,0)/Math.max(1,calls.filter(c=>c.duration_seconds).length)) : 0 %>s</div>
+          <div class="stat-label">Avg Duration</div>
+        </div>
+      </div>
+
+      <!-- Call log table -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Recent Calls</div>
+        </div>
+        <% if (calls.length === 0) { %>
+        <div class="empty-state">
+          <span class="empty-icon">📞</span>
+          <h3>No Calls Yet</h3>
+          <p>Calls will appear here once Twilio is configured and your number starts receiving calls.</p>
+        </div>
+        <% } else { %>
+        <div class="table-container">
+          <table class="table">
+            <thead><tr>
+              <th>Time</th>
+              <th>Caller</th>
+              <th>Status</th>
+              <th>Duration</th>
+              <th>Ticket Created</th>
+              <th>Priority</th>
+            </tr></thead>
+            <tbody>
+              <% for (const c of calls) { %>
+              <tr>
+                <td style="font-size:.8rem;white-space:nowrap;color:var(--text-muted);">
+                  <%= new Date(c.created_at).toLocaleString() %>
+                </td>
+                <td style="font-family:monospace;font-size:.85rem;color:var(--secondary);">
+                  <%= c.caller_number || '—' %>
+                </td>
+                <td>
+                  <% const statusColor = {active:'secondary',completed:'success',voicemail:'warning','no-answer':'muted','busy':'muted','failed':'danger'}[c.status]||'muted' %>
+                  <span class="badge badge-<%= c.status === 'completed' ? 'completed' : c.status === 'voicemail' ? 'on-hold' : c.status === 'active' ? 'open' : 'closed' %>">
+                    <%= c.status %>
+                  </span>
+                </td>
+                <td style="font-size:.85rem;color:var(--text-muted);">
+                  <%= c.duration_seconds ? c.duration_seconds + 's' : '—' %>
+                </td>
+                <td>
+                  <% if (c.ticket_id) { %>
+                  <a href="/tickets/<%= c.ticket_id %>" class="ticket-link"><%= c.ticket_number || c.ticket_id.slice(0,8) %></a>
+                  <span style="font-size:.8rem;color:var(--text-muted);margin-left:.4rem;"><%= c.ticket_title ? c.ticket_title.slice(0,40) + (c.ticket_title.length > 40 ? '…' : '') : '' %></span>
+                  <% } else { %>
+                  <span style="color:var(--text-muted);">—</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (c.priority) { %>
+                  <span class="badge badge-<%= c.priority.toLowerCase() %>"><%= c.priority %></span>
+                  <% } else { %><span style="color:var(--text-muted);">—</span><% } %>
+                </td>
+              </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="/public/js/app.js"></script>
+</body>
+</html>

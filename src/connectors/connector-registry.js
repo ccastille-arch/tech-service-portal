@@ -10,7 +10,9 @@ const REGISTRY = {
   enbase: EnbaseConnector,
   netsuite: NetsuiteConnector,
   fieldaware: FieldawareConnector,
-  email: EmailConnector
+  email: EmailConnector,
+  telephony: EmailConnector,  // placeholder — voice handled directly in routes/voice.js
+  twilio: EmailConnector
 };
 
 function get(type) {

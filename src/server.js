@@ -98,7 +98,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// CSRF middleware (after session)
+// Voice webhooks — exempt from CSRF (Twilio posts here without tokens)
+const voiceRoutes = require('./routes/voice');
+app.use('/voice', voiceRoutes);
+
+// CSRF middleware (after session, after voice routes)
 const { csrfMiddleware } = require('./middleware/csrf');
 app.use(csrfMiddleware);
 
@@ -122,6 +126,7 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/integrations', integrationRoutes);
 app.use('/sync', syncRoutes);
+app.use('/calls', voiceRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }));

@@ -124,7 +124,7 @@ function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS integrations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('mlink','enbase','netsuite','fieldaware','email','sms','telephony','documents')),
+      type TEXT NOT NULL CHECK(type IN ('mlink','enbase','netsuite','fieldaware','email','sms','telephony','twilio','documents')),
       environment TEXT NOT NULL DEFAULT 'sandbox',
       enabled INTEGER NOT NULL DEFAULT 0,
       config_json TEXT,
@@ -187,8 +187,22 @@ function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_tickets_priority ON tickets(priority);
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
     CREATE INDEX IF NOT EXISTS idx_time_entries_ticket ON time_entries(ticket_id);
+    CREATE TABLE IF NOT EXISTS call_sessions (
+      id TEXT PRIMARY KEY,
+      call_sid TEXT UNIQUE NOT NULL,
+      caller_number TEXT,
+      messages TEXT NOT NULL DEFAULT '[]',
+      ticket_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      duration_seconds INTEGER,
+      ended_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status, next_retry_at);
     CREATE INDEX IF NOT EXISTS idx_integration_logs_integration ON integration_logs(integration_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_call_sessions_created ON call_sessions(created_at);
   `);
 
   seedUsers(db);
@@ -253,6 +267,21 @@ function seedIntegrations(db) {
       config_json: JSON.stringify({
         sync_objects: ['jobs', 'technicians', 'labor_hours', 'parts'],
         note: 'Stub — configure API key in credentials'
+      })
+    },
+    {
+      name: 'Twilio Voice & SMS',
+      type: 'telephony',
+      config_json: JSON.stringify({
+        greeting: 'Thank you for calling Tech Services.',
+        company_name: 'Tech Services',
+        from_number: '',
+        tech_sms_numbers: [
+          { name: 'Austin Whitehurst', phone: '' },
+          { name: 'Clint Webb', phone: '' }
+        ],
+        webhook_base_url: 'https://tech-service-portal.vercel.app',
+        note: 'Add account_sid, auth_token, from_number in credentials. Set tech cell numbers above.'
       })
     }
   ];
