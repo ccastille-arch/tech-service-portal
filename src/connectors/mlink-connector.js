@@ -9,8 +9,9 @@ const http = require('http');
  * Base: https://api.fwmurphy-iot.com/api
  * Devices: Panel 2504-504495, Compressor A 2504-505561, Compressor B 2504-505472
  */
-const DEFAULT_DEVICES = ['2504-504495', '2504-505561', '2504-505472'];
+const DEFAULT_DEVICES = ['2507-500980', '2504-504495', '2504-505561', '2504-505472'];
 const DEVICE_LABELS   = {
+  '2507-500980': 'Wellhead Panel',
   '2504-504495': 'Panel',
   '2504-505561': 'Compressor A',
   '2504-505472': 'Compressor B',
@@ -81,18 +82,42 @@ class MlinkConnector extends BaseConnector {
     try {
       let records = [];
 
-      if (objectType === 'telemetry' || objectType === 'devices') {
-        // Fetch latest data for each device
+      if (objectType === 'devices') {
+        // Return one record per device with full raw data
         for (const deviceId of this.deviceIds) {
           try {
             const res = await this._fetch('LatestDeviceData', { deviceId });
             if (res.status < 300 && res.body) {
-              const data = Array.isArray(res.body) ? res.body : [res.body];
-              records.push(...data.map(r => ({
-                ...r,
+              records.push({
+                ...res.body,
                 _deviceId: deviceId,
                 _deviceLabel: DEVICE_LABELS[deviceId] || deviceId,
-              })));
+              });
+            }
+          } catch (_) {}
+        }
+      } else if (objectType === 'telemetry') {
+        // Flatten datapoints — one record per reading across all devices
+        for (const deviceId of this.deviceIds) {
+          try {
+            const res = await this._fetch('LatestDeviceData', { deviceId });
+            if (res.status < 300 && res.body?.datapoints) {
+              const timestamps = res.body.timestamps || [];
+              const ports = res.body.ports || [];
+              const lastTs = timestamps.length ? Math.max(...timestamps) : null;
+              for (const dp of res.body.datapoints) {
+                records.push({
+                  deviceId,
+                  deviceName: DEVICE_LABELS[deviceId] || deviceId,
+                  alias: (dp.alias || '').trim(),
+                  description: dp.desc || '',
+                  value: dp.value,
+                  units: dp.units || '',
+                  address: dp.addressStr || '',
+                  portName: ports[dp.portIdx]?.name || '',
+                  timestamp: lastTs,
+                });
+              }
             }
           } catch (_) {}
         }
