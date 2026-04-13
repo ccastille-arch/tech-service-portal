@@ -105,7 +105,7 @@ app.use((req, res, next) => {
   if (!token) return next();
   try {
     const jwt = require('jsonwebtoken');
-    const secret = process.env.SSO_TOKEN_SECRET || process.env.SESSION_SECRET || 'dev-secret-change-me';
+    const secret = process.env.SESSION_SECRET || 'dev-secret-change-me';
     const payload = jwt.verify(token, secret);
     // Create session from SSO payload
     req.session.user = {
