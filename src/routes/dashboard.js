@@ -81,10 +81,13 @@ router.get('/dashboard', requireAuth, (req, res) => {
   const slaTotal = allActive.length;
   const slaCompliance = slaTotal > 0 ? Math.round(((slaTotal - slaBreach) / slaTotal) * 100) : 100;
 
+  // What's New — latest 3 published entries
+  const whatsNew = db.prepare("SELECT * FROM changelog WHERE is_published=1 ORDER BY created_at DESC LIMIT 3").all();
+
   res.render('dashboard', {
     title: 'Dashboard — Tech Service Portal',
     stats, priorityCounts, techBreakdown, activity, myTickets, recentTickets,
-    slaCompliance, slaBreach, slaTotal,
+    slaCompliance, slaBreach, slaTotal, whatsNew,
     user, unreadCount: res.locals.unreadCount
   });
 });
