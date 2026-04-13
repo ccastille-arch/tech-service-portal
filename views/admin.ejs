@@ -164,9 +164,6 @@
       <div class="admin-tab <%= tab==='requests' ? 'active' : '' %>" id="panel-requests">
         <div class="card">
           <div class="card-header"><div class="card-title">Feature Requests — Admin View</div></div>
-          <%
-            const allRequests = (() => { try { return require('../src/database') } catch(e){return null} })();
-          %>
           <div style="padding:.75rem 1rem;font-size:.82rem;color:var(--text-muted);">
             Manage feature requests from <a href="/feature-requests" style="color:var(--secondary)">the Feature Requests page</a>. Use the status dropdown on each card to update status and add admin notes.
           </div>
