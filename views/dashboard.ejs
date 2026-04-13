@@ -227,13 +227,19 @@ async function loadMlink() {
   const summary = document.getElementById('mlink-summary');
   const readEl = document.getElementById('mlink-readings');
   try {
+    // First get full device count from hierarchy
+    const hRes = await fetch('/integrations/live/mlink?type=devices');
+    const hData = await hRes.json();
+    const totalDevices = hData.ok ? hData.count : 0;
+
+    // Then get telemetry sample
     const r = await fetch('/integrations/live/mlink?type=telemetry');
     const d = await r.json();
     if (d.ok) {
-      badge.textContent = d.count + ' readings';
+      badge.textContent = totalDevices + ' devices';
       badge.className = 'badge badge-p4';
-      const deviceIds = [...new Set(d.records.map(r => r.deviceId || r._deviceId).filter(Boolean))];
-      summary.textContent = `${d.count} data points across ${deviceIds.length} devices`;
+      const liveDeviceIds = [...new Set(d.records.map(r => r.deviceId || r._deviceId).filter(Boolean))];
+      summary.textContent = `${totalDevices} fleet devices · ${d.count} live readings from ${liveDeviceIds.length} sampled`;
       if (d.records.length) {
         const byDevice = {};
         d.records.forEach(r => {
@@ -243,7 +249,7 @@ async function loadMlink() {
         });
         readEl.innerHTML = Object.entries(byDevice).slice(0,3).map(([lbl, rows]) => {
           const row = rows[0];
-          const val = row.value ?? row.reading ?? '—';
+          const val = row.value ?? row.reading ?? '\u2014';
           const unit = row.units ?? row.unit ?? '';
           return `<div style="padding:3px 0;border-bottom:1px solid var(--border)">
             <strong>${esc(lbl)}</strong>
