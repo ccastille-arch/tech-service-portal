@@ -75,9 +75,9 @@
             <div style="font-size:.72rem;color:var(--text-muted)"><% if (u.last_login_at) { %><span data-ts="<%= u.last_login_at %>"><%= u.last_login_at.slice(0,16).replace('T',' ') %></span><% } else { %>Never<% } %></div>
             <div style="display:flex;gap:.35rem;flex-wrap:wrap;">
               <button class="btn btn-ghost btn-sm" style="font-size:.7rem;padding:.2rem .5rem;"
-                onclick="openEdit('<%= u.id %>','<%= u.name.replace(/'/g, \"\\\\'\" ) %>','<%= u.email %>','<%= u.role %>')">Edit</button>
+                onclick="openEdit(<%- JSON.stringify(u.id) %>,<%- JSON.stringify(u.name) %>,<%- JSON.stringify(u.email) %>,<%- JSON.stringify(u.role) %>)">Edit</button>
               <button class="btn btn-ghost btn-sm" style="font-size:.7rem;padding:.2rem .5rem;"
-                onclick="openReset('<%= u.id %>','<%= u.name.replace(/'/g, \"\\\\'\" ) %>')">Reset PW</button>
+                onclick="openReset(<%- JSON.stringify(u.id) %>,<%- JSON.stringify(u.name) %>)">Reset PW</button>
               <% if (isLocked) { %>
               <form method="POST" action="/admin/users/<%= u.id %>/unlock" style="display:inline;">
                 <input type="hidden" name="_csrf" value="<%= locals.csrfToken || csrfToken %>">
