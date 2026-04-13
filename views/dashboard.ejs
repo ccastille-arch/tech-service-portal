@@ -201,14 +201,14 @@ async function loadEnbase() {
     if (d.ok) {
       badge.textContent = d.count + ' alarms';
       badge.className = 'badge ' + (d.count > 0 ? 'badge-p2' : 'badge-p4');
-      const active = d.records.filter(a => /active|open|new/i.test(String(a.status||a.state||'')));
+      const active = d.records.filter(a => a.IsActive === true || /active|open|new/i.test(String(a.AlarmStateName||a.status||a.state||'')));
       summary.textContent = `${d.count} alarm records · ${active.length} active`;
       if (d.records.length) {
         alarmEl.innerHTML = d.records.slice(0,3).map(a =>
           `<div style="padding:3px 0;border-bottom:1px solid var(--border)">
-            <span style="color:${/crit|high|1/i.test(String(a.severity||a.priority||''))? 'var(--danger)':'var(--warning)'}">●</span>
-            ${esc(a.message||a.alarmText||a.description||a.name||'Alarm')}
-            <span style="color:var(--text-muted);float:right">${esc(a.assetName||a.asset||'')}</span>
+            <span style="color:${/crit|high/i.test(String(a.AlarmSeverityName||a.severity||''))? 'var(--danger)':'var(--warning)'}">●</span>
+            ${esc(a.Message||a.message||a.alarmText||'Alarm')}
+            <span style="color:var(--text-muted);float:right">${esc(a.AssetId||a.assetName||'')}</span>
           </div>`
         ).join('');
       }
@@ -232,18 +232,19 @@ async function loadMlink() {
     if (d.ok) {
       badge.textContent = d.count + ' readings';
       badge.className = 'badge badge-p4';
-      summary.textContent = `${d.count} data points across ${[...new Set(d.records.map(r=>r._deviceId).filter(Boolean))].length || '?'} devices`;
+      const deviceIds = [...new Set(d.records.map(r => r.deviceId || r._deviceId).filter(Boolean))];
+      summary.textContent = `${d.count} data points across ${deviceIds.length} devices`;
       if (d.records.length) {
         const byDevice = {};
         d.records.forEach(r => {
-          const lbl = r._deviceLabel || r._deviceId || 'Unknown';
+          const lbl = r.deviceName || r._deviceLabel || r.deviceId || r._deviceId || 'Unknown';
           if (!byDevice[lbl]) byDevice[lbl] = [];
           byDevice[lbl].push(r);
         });
         readEl.innerHTML = Object.entries(byDevice).slice(0,3).map(([lbl, rows]) => {
           const row = rows[0];
-          const val = row.value ?? row.reading ?? row.currentValue ?? '—';
-          const unit = row.unit ?? row.uom ?? '';
+          const val = row.value ?? row.reading ?? '—';
+          const unit = row.units ?? row.unit ?? '';
           return `<div style="padding:3px 0;border-bottom:1px solid var(--border)">
             <strong>${esc(lbl)}</strong>
             <span style="color:var(--text-muted);float:right">${esc(val)} ${esc(unit)}</span>
