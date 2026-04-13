@@ -218,16 +218,19 @@ function seedUsers(db) {
     { username: 'clint.webb', email: 'clint.webb@techservices.local', name: 'Clint Webb', role: 'tech', password: 'ClintTech#2025' }
   ];
 
-  const insert = db.prepare(`
-    INSERT OR IGNORE INTO users (id, username, email, password_hash, name, role, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
   for (const u of users) {
-    const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(u.username);
+    const existing = db.prepare('SELECT id, password_hash FROM users WHERE username = ?').get(u.username);
+    // Use 10 rounds — fast enough for serverless cold starts, still secure
+    const hash = bcrypt.hashSync(u.password, 10);
     if (!existing) {
-      const hash = bcrypt.hashSync(u.password, 12);
-      insert.run(uuidv4(), u.username, u.email, hash, u.name, u.role, now, now);
+      db.prepare(`
+        INSERT INTO users (id, username, email, password_hash, name, role, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(uuidv4(), u.username, u.email, hash, u.name, u.role, now, now);
+    } else {
+      // Always sync password hash so env var changes take effect on redeploy
+      db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE username = ?')
+        .run(hash, now, u.username);
     }
   }
 }
