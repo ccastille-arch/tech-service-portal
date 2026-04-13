@@ -1,27 +1,23 @@
 'use strict';
 const BaseConnector = require('./base-connector');
 const https = require('https');
-const http = require('http');
 
 /**
  * MlinkConnector — FW Murphy IoT MLink API
- * Auth: query param ?code=API_KEY
+ * Auth: query param ?code=API_KEY or header x-functions-key
  * Base: https://api.fwmurphy-iot.com/api
- * Devices: Panel 2504-504495, Compressor A 2504-505561, Compressor B 2504-505472
+ *
+ * Endpoints:
+ *   GET /DeviceHierarchy?v=2         — full fleet tree (all devices + groups)
+ *   GET /LatestDeviceData?deviceId=X — current readings for one device
+ *   GET /RunReport?deviceId=X&startTs=N&endTs=N — historical (max 24h, 30 day lookback)
+ *
+ * All responses throttled to 15 min by MLink server.
  */
-const DEFAULT_DEVICES = ['2507-500980', '2504-504495', '2504-505561', '2504-505472'];
-const DEVICE_LABELS   = {
-  '2507-500980': 'Wellhead Panel',
-  '2504-504495': 'Panel',
-  '2504-505561': 'Compressor A',
-  '2504-505472': 'Compressor B',
-};
-
 class MlinkConnector extends BaseConnector {
   constructor(integration, credentials, fieldMappings) {
     super(integration, credentials, fieldMappings);
     this.baseUrl = (this.config.base_url || 'https://api.fwmurphy-iot.com/api').replace(/\/$/, '');
-    this.deviceIds = this.config.device_ids || DEFAULT_DEVICES;
   }
 
   _apiKey() {
@@ -35,80 +31,102 @@ class MlinkConnector extends BaseConnector {
     url.searchParams.set('code', this._apiKey());
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
-    const isHttps = url.protocol === 'https:';
-    const lib = isHttps ? https : http;
-
     return new Promise((resolve, reject) => {
-      const req = lib.request({
+      const req = https.request({
         hostname: url.hostname,
-        port: url.port || (isHttps ? 443 : 80),
+        port: 443,
         path: url.pathname + url.search,
         method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'TechServicePortal/1.0',
-        },
-        timeout: 15000,
+        headers: { 'Accept': 'application/json', 'User-Agent': 'TechServicePortal/2.0' },
       }, (res) => {
         let data = '';
         res.on('data', chunk => data += chunk);
         res.on('end', () => {
-          try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
-          catch { resolve({ status: res.statusCode, body: data }); }
+          let json;
+          try { json = JSON.parse(data); } catch { json = data; }
+          resolve({ status: res.statusCode, body: json });
         });
       });
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
+      req.setTimeout(45000, () => { req.destroy(); reject(new Error('Request timeout (45s)')); });
       req.end();
     });
   }
 
+  // ── Hierarchy helpers ────────────────────────────────────────────────────
+
+  _flattenHierarchy(tree) {
+    const devices = [];
+    function walk(nodes, path) {
+      for (const node of nodes) {
+        const groupPath = path ? path + ' / ' + node.d : node.d;
+        for (const [devId, devName] of Object.entries(node.g || {})) {
+          devices.push({ id: devId, name: devName, group: node.d, path: groupPath });
+        }
+        if (node.c && node.c.length) walk(node.c, groupPath);
+      }
+    }
+    walk(tree, '');
+    return devices;
+  }
+
+  // ── Test connection ──────────────────────────────────────────────────────
+
   async testConnection() {
     const start = Date.now();
     try {
-      const deviceId = this.deviceIds[0];
-      const res = await this._fetch('LatestDeviceData', { deviceId });
-      const ok = res.status >= 200 && res.status < 300;
-      await this.log('test_connection', ok ? 'success' : 'failed', ok ? null : `HTTP ${res.status}`, Date.now() - start);
-      return { ok, message: ok ? `Connected to FW Murphy IoT (device ${deviceId})` : `HTTP ${res.status}: ${JSON.stringify(res.body)}` };
+      const res = await this._fetch('DeviceHierarchy', { v: '2' });
+      const duration = Date.now() - start;
+      if (res.status === 200 && Array.isArray(res.body)) {
+        const devices = this._flattenHierarchy(res.body);
+        await this.log('test_connection', 'success', null, duration);
+        return { ok: true, message: `Connected to MLink — ${devices.length} devices in fleet` };
+      }
+      await this.log('test_connection', 'failed', `HTTP ${res.status}`, duration);
+      return { ok: false, message: `HTTP ${res.status}` };
     } catch (err) {
       await this.log('test_connection', 'failed', err.message, Date.now() - start);
       return { ok: false, message: err.message };
     }
   }
 
+  // ── Sync inbound ─────────────────────────────────────────────────────────
+
   async syncInbound(objectType, options = {}) {
     const start = Date.now();
     try {
       let records = [];
 
-      if (objectType === 'devices') {
-        // Return one record per device with full raw data
-        for (const deviceId of this.deviceIds) {
-          try {
-            const res = await this._fetch('LatestDeviceData', { deviceId });
-            if (res.status < 300 && res.body) {
-              records.push({
-                ...res.body,
-                _deviceId: deviceId,
-                _deviceLabel: DEVICE_LABELS[deviceId] || deviceId,
-              });
-            }
-          } catch (_) {}
+      if (objectType === 'devices' || objectType === 'hierarchy') {
+        // Return flat device list from hierarchy
+        const res = await this._fetch('DeviceHierarchy', { v: '2' });
+        if (res.status === 200 && Array.isArray(res.body)) {
+          records = this._flattenHierarchy(res.body);
         }
+
       } else if (objectType === 'telemetry') {
-        // Flatten datapoints — one record per reading across all devices
-        for (const deviceId of this.deviceIds) {
+        // Get hierarchy first to know all device IDs, then fetch specified or first N
+        const deviceIds = options.deviceIds || [];
+        if (!deviceIds.length) {
+          // If no device IDs specified, get from hierarchy
+          const hRes = await this._fetch('DeviceHierarchy', { v: '2' });
+          if (hRes.status === 200 && Array.isArray(hRes.body)) {
+            const allDevs = this._flattenHierarchy(hRes.body);
+            // Cap at 20 to avoid hammering the API (each is a separate HTTP call)
+            deviceIds.push(...allDevs.slice(0, 20).map(d => d.id));
+          }
+        }
+
+        for (const deviceId of deviceIds.slice(0, 20)) {
           try {
             const res = await this._fetch('LatestDeviceData', { deviceId });
-            if (res.status < 300 && res.body?.datapoints) {
+            if (res.status === 200 && res.body?.datapoints) {
               const timestamps = res.body.timestamps || [];
               const ports = res.body.ports || [];
               const lastTs = timestamps.length ? Math.max(...timestamps) : null;
               for (const dp of res.body.datapoints) {
                 records.push({
                   deviceId,
-                  deviceName: DEVICE_LABELS[deviceId] || deviceId,
                   alias: (dp.alias || '').trim(),
                   description: dp.desc || '',
                   value: dp.value,
@@ -121,18 +139,18 @@ class MlinkConnector extends BaseConnector {
             }
           } catch (_) {}
         }
+
       } else if (objectType === 'report') {
-        const deviceId = options.deviceId || this.deviceIds[0];
-        const params = { deviceId };
-        if (options.startDate) params.startDate = options.startDate;
-        if (options.endDate)   params.endDate   = options.endDate;
+        const deviceId = options.deviceId;
+        if (!deviceId) throw new Error('deviceId required for report');
+        const params = { deviceId, startTs: options.startTs, endTs: options.endTs };
         const res = await this._fetch('RunReport', params);
-        if (res.status < 300) {
-          records = Array.isArray(res.body) ? res.body : (res.body?.data || [res.body]);
+        if (res.status === 200) {
+          records = Array.isArray(res.body) ? res.body : [res.body];
         }
       }
 
-      await this.log('sync_inbound', 'success', null, Date.now() - start);
+      await this.log('sync_inbound', 'success', `${records.length} records`, Date.now() - start);
       return records;
     } catch (err) {
       await this.log('sync_inbound', 'failed', err.message, Date.now() - start);

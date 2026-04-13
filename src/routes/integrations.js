@@ -252,17 +252,19 @@ router.get('/live/assets', requireAuth, async (req, res) => {
       }
     }
   } catch (_) {}
-  // MLink devices
+  // MLink devices (from DeviceHierarchy — all 745+ devices)
   try {
     const c = getConnector(db, 'mlink');
     if (c) {
       const records = await c.syncInbound('devices');
-      for (const r of records.slice(0, 20)) {
+      for (const r of records) {
         assets.push({
           source: 'mlink',
-          id: r._deviceId || r.deviceId || r.id,
-          name: r._deviceLabel || r.name || r.deviceName || String(r._deviceId),
-          type: 'Device',
+          id: r.id,
+          name: r.name || r.id,
+          type: 'MLink Device',
+          group: r.group || '',
+          path: r.path || '',
         });
       }
     }
