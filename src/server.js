@@ -6,6 +6,10 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { getDb, initializeDatabase } = require('./database');
+const { validateSecretsOnStartup } = require('./services/secrets');
+
+// Validate secrets and warn about insecure defaults before anything else
+validateSecretsOnStartup();
 
 // Initialize DB on startup
 initializeDatabase();
@@ -88,6 +92,23 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  // HSTS — enforce TLS for 1 year in production
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  // Content Security Policy — restrict resource origins
+  res.setHeader('Content-Security-Policy', [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob:",
+    "connect-src 'self'",
+    "frame-ancestors 'self'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join('; '));
   next();
 });
 
@@ -152,6 +173,7 @@ const fleetRoutes = require('./routes/fleet');
 const adminRoutes = require('./routes/admin');
 const communityRoutes = require('./routes/community');
 
+app.use('/login', authLimiter);
 app.use('/', authRoutes);
 app.use('/', dashboardRoutes);
 app.use('/tickets', ticketRoutes);

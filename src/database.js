@@ -263,6 +263,46 @@ function initializeDatabase() {
   seedIntegrations(db);
   seedChangelog(db);
   initNexusSchema(db);
+  initSecuritySchema(db);
+}
+
+function initSecuritySchema(db) {
+  // Audit log table — immutable append-only record of all security-relevant events
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id           TEXT PRIMARY KEY,
+      actor_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+      actor_name   TEXT,
+      action       TEXT NOT NULL,
+      resource_type TEXT,
+      resource_id  TEXT,
+      old_value    TEXT,
+      new_value    TEXT,
+      ip           TEXT,
+      user_agent   TEXT,
+      meta         TEXT,
+      created_at   TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_actor  ON audit_logs(actor_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action, created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, resource_id);
+  `);
+
+  // Add account-lockout columns to users (silent if already present)
+  const lockoutCols = [
+    'ALTER TABLE users ADD COLUMN last_login_at TEXT',
+    'ALTER TABLE users ADD COLUMN login_attempts INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE users ADD COLUMN locked_until TEXT',
+  ];
+  for (const sql of lockoutCols) {
+    try { db.exec(sql); } catch (_) {}
+  }
+
+  // Add encrypted sensitive-notes column to tickets (for private internal notes)
+  try { db.exec('ALTER TABLE tickets ADD COLUMN encrypted_notes TEXT'); } catch (_) {}
+
+  // Add access_level to ticket_attachments (for future sensitive-doc controls)
+  try { db.exec("ALTER TABLE ticket_attachments ADD COLUMN access_level TEXT NOT NULL DEFAULT 'standard'"); } catch (_) {}
 }
 
 function initNexusSchema(db) {

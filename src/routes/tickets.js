@@ -8,6 +8,11 @@ const { getDb, nextTicketNumber } = require('../database');
 const { requireAuth } = require('../middleware/authenticate');
 const { getSlaStatus, getDefaultDueDate } = require('../services/sla');
 const { notifyAssignment, notifyStatusChange } = require('../services/notifications');
+const { logAudit, actorFromReq, AUDIT_ACTIONS } = require('../services/audit');
+const {
+  sanitizeString, validatePriority, validateStatus, validateCategory,
+  validateSortCol, validateDate, sanitizeSearchQuery
+} = require('../middleware/validate');
 const router = express.Router();
 
 // Multer setup
@@ -33,7 +38,15 @@ const upload = multer({
 // List tickets
 router.get('/', requireAuth, (req, res) => {
   const db = getDb();
-  const { status, priority, assigned, category, from, to, sort = 'created_at', order = 'desc', q } = req.query;
+  const status   = validateStatus(req.query.status);
+  const priority = validatePriority(req.query.priority);
+  const assigned = sanitizeString(req.query.assigned, 36);
+  const category = validateCategory(req.query.category);
+  const from     = validateDate(req.query.from);
+  const to       = validateDate(req.query.to);
+  const sort     = validateSortCol(req.query.sort || 'created_at');
+  const order    = req.query.order === 'asc' ? 'asc' : 'desc';
+  const q        = sanitizeSearchQuery(req.query.q);
 
   let sql = `
     SELECT t.*, u.name as assigned_name, c.name as creator_name
@@ -44,18 +57,20 @@ router.get('/', requireAuth, (req, res) => {
   `;
   const params = [];
 
-  if (status) { sql += ' AND t.status = ?'; params.push(status); }
+  if (status)   { sql += ' AND t.status = ?';   params.push(status); }
   if (priority) { sql += ' AND t.priority = ?'; params.push(priority); }
   if (assigned) { sql += ' AND t.assigned_to = ?'; params.push(assigned); }
   if (category) { sql += ' AND t.category = ?'; params.push(category); }
-  if (from) { sql += ' AND t.created_at >= ?'; params.push(from); }
-  if (to) { sql += ' AND t.created_at <= ?'; params.push(to + 'T23:59:59'); }
-  if (q) { sql += ' AND (t.title LIKE ? OR t.description LIKE ? OR t.ticket_number LIKE ? OR t.well_site LIKE ?)'; const like = `%${q}%`; params.push(like, like, like, like); }
+  if (from)     { sql += ' AND t.created_at >= ?'; params.push(from); }
+  if (to)       { sql += ' AND t.created_at <= ?'; params.push(to + 'T23:59:59'); }
+  if (q) {
+    const like = `%${q}%`;
+    sql += ' AND (t.title LIKE ? OR t.description LIKE ? OR t.ticket_number LIKE ? OR t.well_site LIKE ?)';
+    params.push(like, like, like, like);
+  }
 
-  const validCols = ['created_at', 'updated_at', 'priority', 'status', 'due_date', 'ticket_number'];
-  const sortCol = validCols.includes(sort) ? sort : 'created_at';
   const sortDir = order === 'asc' ? 'ASC' : 'DESC';
-  sql += ` ORDER BY t.${sortCol} ${sortDir}`;
+  sql += ` ORDER BY t.${sort} ${sortDir}`;
 
   const tickets = db.prepare(sql).all(...params).map(t => ({ ...t, slaStatus: getSlaStatus(t) }));
   const techs = db.prepare("SELECT id, name, username FROM users WHERE role='tech' ORDER BY name").all();
@@ -83,32 +98,43 @@ router.get('/new', requireAuth, (req, res) => {
 
 // Create ticket
 router.post('/', requireAuth, (req, res) => {
-  const db = getDb();
-  const { title, description, priority, category, assigned_to, location, well_site, due_date } = req.body;
+  const db   = getDb();
+  const user = req.session.user;
+
+  const title       = sanitizeString(req.body.title, 300);
+  const description = sanitizeString(req.body.description, 10000);
+  const priority    = validatePriority(req.body.priority);
+  const category    = validateCategory(req.body.category);
+  const assigned_to = sanitizeString(req.body.assigned_to, 36) || null;
+  const location    = sanitizeString(req.body.location, 200);
+  const well_site   = sanitizeString(req.body.well_site, 200);
+  const due_date    = validateDate(req.body.due_date);
 
   if (!title || !priority || !category) {
     req.session.flash = { error: 'Title, priority, and category are required.' };
     return res.redirect('/tickets/new');
   }
 
-  const id = uuidv4();
+  const id            = uuidv4();
   const ticket_number = nextTicketNumber(db);
-  const now = new Date().toISOString();
-  const user = req.session.user;
+  const now           = new Date().toISOString();
 
   db.prepare(`
     INSERT INTO tickets (id, ticket_number, title, description, priority, category, status, assigned_to, location, well_site, due_date, created_by, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, ticket_number, title, description || null, priority, category, assigned_to || null, location || null, well_site || null, due_date || null, user.id, now, now);
+  `).run(id, ticket_number, title, description, priority, category, assigned_to, location, well_site, due_date, user.id, now, now);
 
-  // History
   db.prepare('INSERT INTO ticket_history (id, ticket_id, user_id, field_changed, old_value, new_value, changed_at) VALUES (?,?,?,?,?,?,?)')
     .run(uuidv4(), id, user.id, 'status', null, 'open', now);
 
-  // Notify assignee
-  if (assigned_to) {
-    notifyAssignment({ id, ticket_number, title }, assigned_to, user.name);
-  }
+  logAudit(db, {
+    ...actorFromReq(req),
+    action: AUDIT_ACTIONS.TICKET_CREATED,
+    resource_type: 'ticket', resource_id: id,
+    new_value: `${ticket_number} priority=${priority} category=${category}`,
+  });
+
+  if (assigned_to) notifyAssignment({ id, ticket_number, title }, assigned_to, user.name);
 
   req.session.flash = { success: `Ticket ${ticket_number} created.` };
   res.redirect(`/tickets/${id}`);
@@ -176,7 +202,16 @@ router.post('/:id', requireAuth, (req, res) => {
   if (!ticket) return res.status(404).json({ error: 'Not found' });
 
   const user = req.session.user;
-  const { status, priority, assigned_to, title, description, category, location, well_site, due_date } = req.body;
+  // Sanitize and validate all inputs
+  const status      = validateStatus(req.body.status);
+  const priority    = validatePriority(req.body.priority);
+  const title       = sanitizeString(req.body.title, 300);
+  const description = req.body.description !== undefined ? sanitizeString(req.body.description, 10000) : undefined;
+  const category    = validateCategory(req.body.category);
+  const location    = req.body.location !== undefined ? sanitizeString(req.body.location, 200) : undefined;
+  const well_site   = req.body.well_site !== undefined ? sanitizeString(req.body.well_site, 200) : undefined;
+  const due_date    = req.body.due_date !== undefined ? validateDate(req.body.due_date) : undefined;
+  const assigned_to = req.body.assigned_to;
   const now = new Date().toISOString();
   const fields = {};
   const historyEntries = [];
@@ -210,6 +245,15 @@ router.post('/:id', requireAuth, (req, res) => {
       db.prepare('INSERT INTO ticket_history (id,ticket_id,user_id,field_changed,old_value,new_value,changed_at) VALUES (?,?,?,?,?,?,?)')
         .run(uuidv4(), ticket.id, user.id, h.field, h.old, h.new, now);
     }
+  }
+
+  if (historyEntries.length) {
+    logAudit(db, {
+      ...actorFromReq(req),
+      action: AUDIT_ACTIONS.TICKET_UPDATED,
+      resource_type: 'ticket', resource_id: ticket.id,
+      new_value: historyEntries.map(h => `${h.field}: ${h.old}→${h.new}`).join('; '),
+    });
   }
 
   req.session.flash = { success: 'Ticket updated.' };
@@ -299,6 +343,13 @@ router.post('/:id/escalate', requireAuth, (req, res) => {
   db.prepare("UPDATE tickets SET priority=?, updated_at=? WHERE id=?").run(newPriority, now, ticket.id);
   db.prepare('INSERT INTO ticket_history (id,ticket_id,user_id,field_changed,old_value,new_value,changed_at) VALUES (?,?,?,?,?,?,?)')
     .run(uuidv4(), ticket.id, req.session.user.id, 'priority', ticket.priority, newPriority, now);
+
+  logAudit(db, {
+    ...actorFromReq(req),
+    action: AUDIT_ACTIONS.TICKET_ESCALATED,
+    resource_type: 'ticket', resource_id: ticket.id,
+    old_value: ticket.priority, new_value: newPriority,
+  });
 
   req.session.flash = { success: `Escalated to ${newPriority}.` };
   res.redirect(`/tickets/${ticket.id}`);

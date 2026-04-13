@@ -14,6 +14,7 @@
       <div style="display:flex;gap:.5rem;margin-bottom:1.25rem;border-bottom:1px solid var(--border);padding-bottom:.5rem;overflow-x:auto;">
         <button onclick="switchTab('users')"    id="tab-btn-users"    class="tab-btn-admin <%= tab==='users'    ? 'active-tab' : '' %>">👥 Users</button>
         <button onclick="switchTab('activity')" id="tab-btn-activity" class="tab-btn-admin <%= tab==='activity' ? 'active-tab' : '' %>">📡 Live Activity</button>
+        <button onclick="switchTab('audit')"    id="tab-btn-audit"    class="tab-btn-admin <%= tab==='audit'    ? 'active-tab' : '' %>">🔐 Audit Log</button>
         <button onclick="switchTab('requests')" id="tab-btn-requests" class="tab-btn-admin <%= tab==='requests' ? 'active-tab' : '' %>">💡 Feature Requests</button>
         <button onclick="switchTab('changelog')" id="tab-btn-changelog" class="tab-btn-admin <%= tab==='changelog' ? 'active-tab' : '' %>">✨ Changelog</button>
       </div>
@@ -56,30 +57,75 @@
 
           <!-- Header -->
           <div class="user-row" style="font-size:.7rem;color:var(--text-muted);letter-spacing:.07em;text-transform:uppercase;background:var(--bg-mid);">
-            <div>Name / Username</div><div>Email</div><div>Role</div><div>Created</div><div>Actions</div>
+            <div>Name / Username</div><div>Email</div><div>Role / Status</div><div>Last Login</div><div>Actions</div>
           </div>
 
           <% for (const u of users) { %>
-          <div class="user-row">
+          <% const isLocked = u.locked_until && new Date(u.locked_until) > new Date(); %>
+          <div class="user-row" style="<%= isLocked ? 'border-left:3px solid var(--danger);' : '' %>">
             <div>
               <div style="font-weight:600;color:var(--text-bright);"><%= u.name %></div>
               <div style="font-size:.72rem;color:var(--text-muted);font-family:monospace;">@<%= u.username %></div>
             </div>
             <div style="color:var(--text-muted);font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><%= u.email %></div>
-            <div><span class="badge-<%= u.role %>"><%= u.role %></span></div>
-            <div style="font-size:.72rem;color:var(--text-muted)"><%= new Date(u.created_at).toLocaleDateString() %></div>
-            <div style="display:flex;gap:.35rem;">
+            <div>
+              <span class="badge-<%= u.role %>"><%= u.role %></span>
+              <% if (isLocked) { %><span style="font-size:.65rem;color:var(--danger);margin-left:.35rem;">🔒 Locked</span><% } %>
+            </div>
+            <div style="font-size:.72rem;color:var(--text-muted)"><%= u.last_login_at ? new Date(u.last_login_at).toLocaleString() : 'Never' %></div>
+            <div style="display:flex;gap:.35rem;flex-wrap:wrap;">
               <button class="btn btn-ghost btn-sm" style="font-size:.7rem;padding:.2rem .5rem;"
-                onclick="openEdit('<%= u.id %>','<%= u.name %>','<%= u.email %>','<%= u.role %>')">Edit</button>
+                onclick="openEdit('<%= u.id %>','<%= u.name.replace(/'/g, \"\\\\'\" ) %>','<%= u.email %>','<%= u.role %>')">Edit</button>
               <button class="btn btn-ghost btn-sm" style="font-size:.7rem;padding:.2rem .5rem;"
-                onclick="openReset('<%= u.id %>','<%= u.name %>')">Reset PW</button>
-              <% if (u.username !== 'cody') { %>
-              <form method="POST" action="/admin/users/<%= u.id %>/delete" onsubmit="return confirm('Delete <%= u.name %>?')" style="display:inline;">
-                <input type="hidden" name="_csrf" value="<%= locals.csrfToken %>">
+                onclick="openReset('<%= u.id %>','<%= u.name.replace(/'/g, \"\\\\'\" ) %>')">Reset PW</button>
+              <% if (isLocked) { %>
+              <form method="POST" action="/admin/users/<%= u.id %>/unlock" style="display:inline;">
+                <input type="hidden" name="_csrf" value="<%= locals.csrfToken || csrfToken %>">
+                <button class="btn btn-sm" style="font-size:.7rem;padding:.2rem .5rem;background:rgba(255,214,10,.1);border-color:rgba(255,214,10,.3);color:var(--warning);">Unlock</button>
+              </form>
+              <% } %>
+              <% if (u.username !== 'cody' && u.id !== user.id) { %>
+              <form method="POST" action="/admin/users/<%= u.id %>/delete" onsubmit="return confirm('Delete <%= u.name %>? This cannot be undone.')" style="display:inline;">
+                <input type="hidden" name="_csrf" value="<%= locals.csrfToken || csrfToken %>">
                 <button class="btn btn-sm" style="font-size:.7rem;padding:.2rem .5rem;background:rgba(255,51,85,.1);border-color:rgba(255,51,85,.3);color:var(--danger);">Del</button>
               </form>
               <% } %>
             </div>
+          </div>
+          <% } %>
+        </div>
+      </div>
+
+      <!-- ── AUDIT LOG TAB ──────────────────────────────────────────────────── -->
+      <div class="admin-tab <%= tab==='audit' ? 'active' : '' %>" id="panel-audit">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🔐 Security Audit Log</div>
+          </div>
+          <% if (!auditLogs || auditLogs.length === 0) { %>
+          <div class="empty-state"><span class="empty-icon">🔐</span><h3>No audit events yet</h3><p>Login attempts, admin actions, and security events will appear here.</p></div>
+          <% } else { %>
+          <div class="table-container">
+            <table class="table">
+              <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th><th>Detail</th><th>IP</th></tr></thead>
+              <tbody>
+                <% for (const a of auditLogs) { %>
+                <%
+                  const isSecurityBad = a.action.includes('failed') || a.action.includes('locked') || a.action.includes('csrf') || a.action.includes('unauth');
+                  const isAdmin = a.action.includes('admin.') || a.action.includes('integration.');
+                  const rowColor = isSecurityBad ? 'rgba(255,51,85,.06)' : isAdmin ? 'rgba(255,107,0,.04)' : '';
+                %>
+                <tr style="background:<%= rowColor %>">
+                  <td style="font-size:.72rem;color:var(--text-muted);white-space:nowrap;"><%= new Date(a.created_at).toLocaleString() %></td>
+                  <td style="font-size:.8rem;font-weight:600;color:var(--secondary)"><%= a.actor_name || '—' %></td>
+                  <td style="font-size:.72rem;font-family:monospace;color:<%= isSecurityBad ? 'var(--danger)' : isAdmin ? 'var(--primary)' : 'var(--text)' %>"><%= a.action %></td>
+                  <td style="font-size:.72rem;color:var(--text-muted);"><%= a.resource_type ? `${a.resource_type}` : '—' %></td>
+                  <td style="font-size:.72rem;color:var(--text-muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<%= (a.new_value || '').replace(/"/g,'&quot;') %>"><%= a.new_value || '' %></td>
+                  <td style="font-size:.7rem;color:var(--text-muted);font-family:monospace;"><%= a.ip || '—' %></td>
+                </tr>
+                <% } %>
+              </tbody>
+            </table>
           </div>
           <% } %>
         </div>
@@ -163,7 +209,7 @@
           <option value="admin">Admin</option>
         </select>
       </div>
-      <div class="form-group"><label class="form-label">Password</label><input class="form-control" type="password" name="password" required minlength="6"></div>
+      <div class="form-group"><label class="form-label">Password</label><input class="form-control" type="password" name="password" required minlength="8" placeholder="Min 8 chars, include a number"></div>
       <div style="display:flex;gap:.5rem;justify-content:flex-end;">
         <button type="button" class="btn btn-ghost" onclick="document.getElementById('create-modal').classList.remove('open')">Cancel</button>
         <button type="submit" class="btn btn-primary">Create User</button>
@@ -206,7 +252,7 @@
     </div>
     <form method="POST" id="reset-form" style="padding:1rem;display:flex;flex-direction:column;gap:.75rem;">
       <input type="hidden" name="_csrf" value="<%= locals.csrfToken %>">
-      <div class="form-group"><label class="form-label">New Password</label><input class="form-control" type="password" name="newPassword" required minlength="6"></div>
+      <div class="form-group"><label class="form-label">New Password</label><input class="form-control" type="password" name="newPassword" required minlength="8" placeholder="Min 8 chars, include a number"></div>
       <div style="display:flex;gap:.5rem;justify-content:flex-end;">
         <button type="button" class="btn btn-ghost" onclick="document.getElementById('reset-modal').classList.remove('open')">Cancel</button>
         <button type="submit" class="btn btn-primary">Reset Password</button>
@@ -328,6 +374,8 @@ async function submitChangelog() {
 }
 
 if (document.getElementById('panel-changelog').classList.contains('active')) loadChangelog();
+// Ensure hidden panels don't reserve layout space
+document.querySelectorAll('.admin-tab:not(.active)').forEach(p => p.style.display = 'none');
 </script>
 </body>
 </html>

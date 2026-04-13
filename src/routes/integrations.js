@@ -5,6 +5,8 @@ const { getDb } = require('../database');
 const { requireAdmin } = require('../middleware/authenticate');
 const { encrypt, maskValue, decrypt } = require('../services/crypto');
 const registry = require('../connectors/connector-registry');
+const { logAudit, actorFromReq, AUDIT_ACTIONS } = require('../services/audit');
+const { sanitizeString } = require('../middleware/validate');
 const router = express.Router();
 
 // List integrations
@@ -21,19 +23,22 @@ router.get('/', requireAdmin, (req, res) => {
   });
 });
 
-// Add new integration form (modal-based, handled via redirect)
+// Add new integration
 router.post('/', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { name, type, environment, config_json } = req.body;
+  const db   = getDb();
+  const name = sanitizeString(req.body.name, 100);
+  const type = sanitizeString(req.body.type, 50);
   if (!name || !type) {
     req.session.flash = { error: 'Name and type are required.' };
     return res.redirect('/integrations');
   }
   let configObj = {};
-  try { configObj = config_json ? JSON.parse(config_json) : {}; } catch { configObj = {}; }
+  try { configObj = req.body.config_json ? JSON.parse(req.body.config_json) : {}; } catch { configObj = {}; }
+  const id  = uuidv4();
   const now = new Date().toISOString();
   db.prepare('INSERT INTO integrations (id,name,type,environment,enabled,config_json,created_at,updated_at) VALUES (?,?,?,?,0,?,?,?)')
-    .run(uuidv4(), name, type, environment || 'sandbox', JSON.stringify(configObj), now, now);
+    .run(id, name, type, req.body.environment || 'sandbox', JSON.stringify(configObj), now, now);
+  logAudit(db, { ...actorFromReq(req), action: AUDIT_ACTIONS.INTEGRATION_CREATED, resource_type: 'integration', resource_id: id, new_value: `name=${name} type=${type}` });
   req.session.flash = { success: `Integration "${name}" created.` };
   res.redirect('/integrations');
 });
@@ -65,30 +70,39 @@ router.post('/:id', requireAdmin, (req, res) => {
   const { name, environment, enabled, config_json } = req.body;
   let configObj = {};
   try { configObj = config_json ? JSON.parse(config_json) : {}; } catch { configObj = {}; }
+  const wasEnabled = db.prepare('SELECT enabled FROM integrations WHERE id=?').get(req.params.id)?.enabled;
+  const nowEnabled = req.body.enabled === 'on' ? 1 : 0;
   db.prepare('UPDATE integrations SET name=?,environment=?,enabled=?,config_json=?,updated_at=? WHERE id=?')
-    .run(name, environment || 'sandbox', enabled === 'on' ? 1 : 0, JSON.stringify(configObj), new Date().toISOString(), req.params.id);
+    .run(req.body.name, req.body.environment || 'sandbox', nowEnabled, JSON.stringify(configObj), new Date().toISOString(), req.params.id);
+  const action = wasEnabled !== nowEnabled
+    ? (nowEnabled ? AUDIT_ACTIONS.INTEGRATION_ENABLED : AUDIT_ACTIONS.INTEGRATION_DISABLED)
+    : AUDIT_ACTIONS.INTEGRATION_UPDATED;
+  logAudit(db, { ...actorFromReq(req), action, resource_type: 'integration', resource_id: req.params.id });
   req.session.flash = { success: 'Integration updated.' };
   res.redirect(`/integrations/${req.params.id}`);
 });
 
-// Add credential
+// Add credential — value is encrypted immediately, never stored in plaintext
 router.post('/:id/credentials', requireAdmin, (req, res) => {
-  const db = getDb();
-  const { key_name, value, expires_at, is_sandbox } = req.body;
+  const db       = getDb();
+  const key_name = sanitizeString(req.body.key_name, 100);
+  const value    = req.body.value ? String(req.body.value) : null;
   if (!key_name || !value) {
     req.session.flash = { error: 'Key name and value are required.' };
     return res.redirect(`/integrations/${req.params.id}`);
   }
-  const now = new Date().toISOString();
+  const now       = new Date().toISOString();
   const encrypted = encrypt(value);
-  // Replace existing key if present
-  const existing = db.prepare('SELECT id FROM integration_credentials WHERE integration_id=? AND key_name=?').get(req.params.id, key_name);
+  const existing  = db.prepare('SELECT id FROM integration_credentials WHERE integration_id=? AND key_name=?').get(req.params.id, key_name);
   if (existing) {
     db.prepare('UPDATE integration_credentials SET encrypted_value=?,expires_at=?,is_sandbox=?,updated_at=? WHERE id=?')
-      .run(encrypted, expires_at || null, is_sandbox === 'on' ? 1 : 0, now, existing.id);
+      .run(encrypted, req.body.expires_at || null, req.body.is_sandbox === 'on' ? 1 : 0, now, existing.id);
+    logAudit(db, { ...actorFromReq(req), action: AUDIT_ACTIONS.CREDENTIAL_ROTATED, resource_type: 'integration_credential', resource_id: existing.id, new_value: `key=${key_name}` });
   } else {
+    const id = uuidv4();
     db.prepare('INSERT INTO integration_credentials (id,integration_id,key_name,encrypted_value,expires_at,is_sandbox,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)')
-      .run(uuidv4(), req.params.id, key_name, encrypted, expires_at || null, is_sandbox === 'on' ? 1 : 0, now, now);
+      .run(id, req.params.id, key_name, encrypted, req.body.expires_at || null, req.body.is_sandbox === 'on' ? 1 : 0, now, now);
+    logAudit(db, { ...actorFromReq(req), action: AUDIT_ACTIONS.CREDENTIAL_ADDED, resource_type: 'integration_credential', resource_id: id, new_value: `key=${key_name}` });
   }
   req.session.flash = { success: `Credential "${key_name}" saved.` };
   res.redirect(`/integrations/${req.params.id}`);
@@ -96,8 +110,10 @@ router.post('/:id/credentials', requireAdmin, (req, res) => {
 
 // Delete credential
 router.post('/:id/credentials/:cid/delete', requireAdmin, (req, res) => {
-  const db = getDb();
+  const db   = getDb();
+  const cred = db.prepare('SELECT key_name FROM integration_credentials WHERE id=? AND integration_id=?').get(req.params.cid, req.params.id);
   db.prepare('DELETE FROM integration_credentials WHERE id=? AND integration_id=?').run(req.params.cid, req.params.id);
+  logAudit(db, { ...actorFromReq(req), action: AUDIT_ACTIONS.CREDENTIAL_DELETED, resource_type: 'integration_credential', resource_id: req.params.cid, old_value: cred ? `key=${cred.key_name}` : null });
   req.session.flash = { success: 'Credential removed.' };
   res.redirect(`/integrations/${req.params.id}`);
 });
@@ -117,8 +133,10 @@ router.post('/:id/test', requireAdmin, async (req, res) => {
   try {
     const connector = new ConnectorClass(integration, credentials, fieldMaps);
     const result = await connector.testConnection();
+    logAudit(db, { ...actorFromReq(req), action: AUDIT_ACTIONS.INTEGRATION_TEST, resource_type: 'integration', resource_id: req.params.id, new_value: result.ok ? 'success' : result.message });
     return res.json(result);
   } catch (err) {
+    logAudit(db, { ...actorFromReq(req), action: AUDIT_ACTIONS.INTEGRATION_TEST, resource_type: 'integration', resource_id: req.params.id, new_value: `error: ${err.message}` });
     return res.json({ ok: false, message: err.message });
   }
 });
