@@ -1,0 +1,360 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title">Fleet Monitor</span>
+      <div class="top-bar-actions" style="gap:.5rem;">
+        <span id="fleet-status-badge" class="badge badge-open" style="font-size:.7rem;letter-spacing:.05em;">LIVE</span>
+        <span id="fleet-last-update" style="font-size:.75rem;color:var(--text-muted);">
+          <% if (lastUpdate) { %>Updated <%= new Date(lastUpdate).toLocaleTimeString() %><% } %>
+        </span>
+        <button class="btn btn-ghost btn-sm" onclick="fleetRefresh()" id="refresh-btn">↻ Refresh</button>
+      </div>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+
+      <!-- Active Alarms Banner -->
+      <% if (allAlarms.length > 0) { %>
+      <div class="card mb-3" style="border-color:var(<%= allAlarms.some(a=>a.level==='critical') ? '--danger' : '--warning' %>);background:rgba(<%= allAlarms.some(a=>a.level==='critical') ? '255,51,85' : '255,214,10' %>,0.06);">
+        <div class="card-header" style="border-bottom-color:rgba(<%= allAlarms.some(a=>a.level==='critical') ? '255,51,85' : '255,214,10' %>,.25);">
+          <div class="card-title" style="color:var(<%= allAlarms.some(a=>a.level==='critical') ? '--danger' : '--warning' %>);">
+            ⚠ Active Alarms (<%= allAlarms.length %>)
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:.5rem;padding:.5rem 0 0;">
+          <% for (const alarm of allAlarms) { %>
+          <div class="badge badge-<%= alarm.level === 'critical' ? 'p1' : 'p2' %>" style="font-size:.75rem;font-weight:600;">
+            <%= alarm.device %> — <%= alarm.tag %>: <%= alarm.msg %>
+          </div>
+          <% } %>
+        </div>
+      </div>
+      <% } %>
+
+      <!-- Device Cards -->
+      <div id="fleet-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:1.25rem;">
+        <% for (const dev of devices) { %>
+        <%
+          const keyTags = dev.type === 'compressor' ? COMPRESSOR_KEY_TAGS : PANEL_KEY_TAGS;
+          const devAlarms = dev.alarms || [];
+          const hasCrit = devAlarms.some(a => a.level === 'critical');
+          const hasWarn = devAlarms.some(a => a.level === 'warning');
+          const borderColor = hasCrit ? 'var(--danger)' : hasWarn ? 'var(--warning)' : 'var(--border)';
+          const headerBg = hasCrit ? 'rgba(255,51,85,0.12)' : hasWarn ? 'rgba(255,214,10,0.08)' : 'var(--bg-mid)';
+        %>
+        <div class="card fleet-card" data-device-id="<%= dev.device_id %>" style="border-color:<%= borderColor %>;">
+          <!-- Card Header -->
+          <div class="card-header" style="background:<%= headerBg %>;border-bottom-color:<%= borderColor %>;padding:.75rem 1rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+              <div>
+                <div class="card-title" style="font-size:1rem;margin:0;">
+                  <span style="color:var(--secondary);margin-right:.4rem;">
+                    <%= dev.type === 'compressor' ? '⚙' : '📟' %>
+                  </span>
+                  <%= dev.name %>
+                </div>
+                <div style="font-size:.7rem;color:var(--text-muted);font-family:monospace;margin-top:.15rem;">
+                  <%= dev.device_id %>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:.5rem;">
+                <% if (hasCrit) { %>
+                <span class="badge badge-p1" style="font-size:.65rem;animation:pulse 1s infinite;">CRITICAL</span>
+                <% } else if (hasWarn) { %>
+                <span class="badge badge-p2" style="font-size:.65rem;">WARNING</span>
+                <% } else { %>
+                <span class="badge badge-completed" style="font-size:.65rem;">NORMAL</span>
+                <% } %>
+                <a href="/tickets/new?location=<%= encodeURIComponent(dev.name) %>&title=<%= encodeURIComponent(dev.name + ' - Issue') %>"
+                   class="btn btn-ghost btn-sm" style="font-size:.7rem;padding:.2rem .5rem;" title="Create Work Order">+ WO</a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Key Readings Grid -->
+          <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem .75rem;">
+              <%
+                const readingMap = {};
+                for (const r of (dev.readings || [])) readingMap[r.alias] = r;
+              %>
+              <% for (const tag of keyTags) { %>
+              <% const r = readingMap[tag]; %>
+              <% if (!r) continue; %>
+              <%
+                const alarmCls = r.alarm === 'critical' ? 'color:var(--danger);' :
+                                 r.alarm === 'warning'  ? 'color:var(--warning);' :
+                                 'color:var(--text-bright);';
+              %>
+              <div class="fleet-reading" data-device="<%= dev.device_id %>" data-tag="<%= tag %>"
+                   style="background:var(--bg-mid);border-radius:4px;padding:.4rem .6rem;border:1px solid var(--border);cursor:pointer;"
+                   onclick="showSparkline('<%= dev.device_id %>','<%= tag.replace(/'/g,'') %>')">
+                <div style="font-size:.65rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                  <%= tag %>
+                </div>
+                <div style="font-size:1.05rem;font-weight:700;font-family:var(--font-display);<%= alarmCls %>">
+                  <%= r.value != null ? r.value.toLocaleString(undefined, {maximumFractionDigits: 1}) : '—' %>
+                  <span style="font-size:.65rem;font-family:var(--font);font-weight:400;color:var(--text-muted);"><%= r.units || '' %></span>
+                  <% if (r.alarm !== 'normal') { %>
+                  <span style="font-size:.65rem;"><%= r.alarm === 'critical' ? '🔴' : '🟡' %></span>
+                  <% } %>
+                </div>
+              </div>
+              <% } %>
+            </div>
+          </div>
+
+          <!-- All Readings Toggle -->
+          <details style="padding:.5rem 1rem;">
+            <summary style="font-size:.75rem;color:var(--text-muted);cursor:pointer;list-style:none;display:flex;align-items:center;gap:.4rem;">
+              <span>▶</span> All Readings (<%= (dev.readings || []).length %> tags)
+            </summary>
+            <div style="margin-top:.5rem;display:grid;grid-template-columns:1fr 1fr;gap:.3rem .75rem;">
+              <% for (const r of (dev.readings || [])) { %>
+              <%
+                const ac = r.alarm === 'critical' ? 'color:var(--danger);' :
+                           r.alarm === 'warning'  ? 'color:var(--warning);' : '';
+              %>
+              <div style="display:flex;justify-content:space-between;padding:.2rem 0;border-bottom:1px solid rgba(255,255,255,.04);">
+                <span style="font-size:.7rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%;" title="<%= r.alias %>">
+                  <%= r.description || r.alias %>
+                </span>
+                <span style="font-size:.7rem;font-weight:600;<%= ac %>">
+                  <%= r.value != null ? r.value.toLocaleString(undefined, {maximumFractionDigits: 2}) : '—' %>
+                  <span style="color:var(--text-muted);font-weight:400;"><%= r.units || '' %></span>
+                </span>
+              </div>
+              <% } %>
+            </div>
+          </details>
+
+          <!-- Timestamp -->
+          <div style="padding:.3rem 1rem .5rem;font-size:.65rem;color:var(--text-muted);border-top:1px solid var(--border);">
+            <% if (dev.collected_at) { %>
+            Last data: <span class="fleet-ts" data-ts="<%= dev.collected_at %>"><%= new Date(dev.collected_at).toLocaleTimeString() %></span>
+            <% } else { %>
+            No data
+            <% } %>
+          </div>
+        </div>
+        <% } %>
+      </div>
+
+      <!-- Sparkline Modal -->
+      <div id="sparkline-modal" style="display:none;position:fixed;inset:0;background:rgba(3,8,18,.85);z-index:1000;align-items:center;justify-content:center;">
+        <div class="card" style="width:min(560px,92vw);max-height:90vh;overflow:auto;">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="card-title" id="sparkline-title">Tag History</div>
+            <button class="btn btn-ghost btn-sm" onclick="closeSparkline()">✕</button>
+          </div>
+          <div style="padding:1rem;">
+            <div style="margin-bottom:.75rem;display:flex;gap:.5rem;">
+              <button class="btn btn-ghost btn-sm" onclick="loadSparkline(6)" id="h6">6h</button>
+              <button class="btn btn-ghost btn-sm" onclick="loadSparkline(24)" id="h24" style="border-color:var(--secondary);color:var(--secondary);">24h</button>
+              <button class="btn btn-ghost btn-sm" onclick="loadSparkline(72)" id="h72">72h</button>
+            </div>
+            <canvas id="sparkline-canvas" height="180"></canvas>
+            <div id="sparkline-empty" style="display:none;text-align:center;color:var(--text-muted);padding:2rem;font-size:.85rem;">No history data available</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/public/js/app.js"></script>
+<script>
+let sparkChart = null;
+let sparkDevice = null;
+let sparkTag = null;
+let sparkHours = 24;
+let refreshTimer = null;
+
+// ── Auto-refresh every 60 seconds ───────────────────────────────────────────
+function startAutoRefresh() {
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(fleetRefresh, 60000);
+}
+
+async function fleetRefresh() {
+  const btn = document.getElementById('refresh-btn');
+  if (btn) btn.textContent = '↻ …';
+  try {
+    const res = await fetch('/fleet/api/latest');
+    const json = await res.json();
+    if (!json.ok) return;
+    updateFleetGrid(json.devices);
+    document.getElementById('fleet-last-update').textContent =
+      'Updated ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    console.error('Fleet refresh error', e);
+  } finally {
+    if (btn) btn.textContent = '↻ Refresh';
+  }
+}
+
+function updateFleetGrid(devices) {
+  for (const dev of devices) {
+    const card = document.querySelector(`.fleet-card[data-device-id="${dev.device_id}"]`);
+    if (!card) continue;
+    const readingMap = {};
+    for (const r of (dev.readings || [])) readingMap[r.alias] = r;
+
+    // Update each reading cell
+    card.querySelectorAll('.fleet-reading[data-tag]').forEach(cell => {
+      const tag = cell.dataset.tag;
+      const r = readingMap[tag];
+      if (!r) return;
+      const valEl = cell.querySelector('div:last-child');
+      if (valEl) {
+        const formatted = r.value != null
+          ? r.value.toLocaleString(undefined, {maximumFractionDigits:1})
+          : '—';
+        const unitSpan = `<span style="font-size:.65rem;font-family:var(--font);font-weight:400;color:var(--text-muted);">${r.units||''}</span>`;
+        const alarmSpan = r.alarm !== 'normal'
+          ? `<span style="font-size:.65rem;">${r.alarm==='critical'?'🔴':'🟡'}</span>` : '';
+        valEl.innerHTML = `${formatted} ${unitSpan} ${alarmSpan}`;
+        valEl.style.color = r.alarm==='critical' ? 'var(--danger)'
+                          : r.alarm==='warning'  ? 'var(--warning)'
+                          : 'var(--text-bright)';
+      }
+    });
+
+    // Update timestamp
+    const tsEl = card.querySelector('.fleet-ts');
+    if (tsEl && dev.collected_at) {
+      tsEl.textContent = new Date(dev.collected_at).toLocaleTimeString();
+      tsEl.dataset.ts = dev.collected_at;
+    }
+  }
+}
+
+// ── Sparkline modal ──────────────────────────────────────────────────────────
+function showSparkline(deviceId, tag) {
+  sparkDevice = deviceId;
+  sparkTag = tag;
+  sparkHours = 24;
+  document.getElementById('sparkline-title').textContent = tag + ' — 24h History';
+  document.getElementById('sparkline-modal').style.display = 'flex';
+  loadSparkline(24);
+}
+
+function closeSparkline() {
+  document.getElementById('sparkline-modal').style.display = 'none';
+  if (sparkChart) { sparkChart.destroy(); sparkChart = null; }
+}
+
+async function loadSparkline(hours) {
+  sparkHours = hours;
+  ['h6','h24','h72'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.borderColor = '';
+      el.style.color = '';
+    }
+  });
+  const activeId = 'h' + hours;
+  const activeEl = document.getElementById(activeId);
+  if (activeEl) {
+    activeEl.style.borderColor = 'var(--secondary)';
+    activeEl.style.color = 'var(--secondary)';
+  }
+  document.getElementById('sparkline-title').textContent =
+    sparkTag + ' — ' + hours + 'h History';
+
+  try {
+    const res = await fetch(`/fleet/api/history?deviceId=${encodeURIComponent(sparkDevice)}&tag=${encodeURIComponent(sparkTag)}&hours=${hours}`);
+    const json = await res.json();
+    const data = json.ok && json.data ? json.data : [];
+    renderSparkline(data);
+  } catch(e) {
+    renderSparkline([]);
+  }
+}
+
+function renderSparkline(points) {
+  const canvas = document.getElementById('sparkline-canvas');
+  const empty = document.getElementById('sparkline-empty');
+
+  if (sparkChart) { sparkChart.destroy(); sparkChart = null; }
+
+  if (!points || points.length === 0) {
+    canvas.style.display = 'none';
+    empty.style.display = 'block';
+    return;
+  }
+
+  canvas.style.display = 'block';
+  empty.style.display = 'none';
+
+  const labels = points.map(p => {
+    const d = new Date(typeof p.timestamp === 'number' && p.timestamp < 1e12
+      ? p.timestamp * 1000 : p.timestamp);
+    return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  });
+  const values = points.map(p => p.value);
+  const units = points[0]?.units || '';
+
+  sparkChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        borderColor: '#00c8e8',
+        backgroundColor: 'rgba(0,200,232,0.08)',
+        borderWidth: 1.5,
+        pointRadius: points.length > 50 ? 0 : 2,
+        pointHoverRadius: 4,
+        fill: true,
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.parsed.y} ${units}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#4a6080', font: { size: 10 }, maxTicksLimit: 8 },
+          grid: { color: 'rgba(255,255,255,.04)' }
+        },
+        y: {
+          ticks: { color: '#4a6080', font: { size: 10 } },
+          grid: { color: 'rgba(255,255,255,.06)' }
+        }
+      }
+    }
+  });
+}
+
+// Close modal on backdrop click
+document.getElementById('sparkline-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeSparkline();
+});
+
+// Open details summary arrow toggle
+document.querySelectorAll('details').forEach(d => {
+  d.addEventListener('toggle', function() {
+    const arrow = this.querySelector('summary span');
+    if (arrow) arrow.textContent = this.open ? '▼' : '▶';
+  });
+});
+
+startAutoRefresh();
+</script>
+</body>
+</html>

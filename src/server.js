@@ -116,6 +116,7 @@ const reportsRoutes = require('./routes/reports');
 const aiRoutes = require('./routes/ai');
 const integrationRoutes = require('./routes/integrations');
 const syncRoutes = require('./routes/sync');
+const fleetRoutes = require('./routes/fleet');
 
 app.use('/', authRoutes);
 app.use('/', dashboardRoutes);
@@ -127,6 +128,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/integrations', integrationRoutes);
 app.use('/sync', syncRoutes);
 app.use('/calls', voiceRoutes);
+app.use('/fleet', fleetRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }));

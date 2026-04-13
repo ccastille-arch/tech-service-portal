@@ -13,6 +13,9 @@
     <a href="/tickets" class="nav-link <%= locals.title && title.includes('Work Order') ? 'active' : '' %>">
       <span class="nav-icon">📋</span> All Work Orders
     </a>
+    <a href="/fleet" class="nav-link <%= locals.title && title.includes('Fleet') ? 'active' : '' %>">
+      <span class="nav-icon">⚙</span> Fleet Monitor
+    </a>
     <a href="/notifications" class="nav-link <%= locals.title && title.includes('Notification') ? 'active' : '' %>">
       <span class="nav-icon">🔔</span> Notifications
       <% if (unreadCount > 0) { %><span class="nav-badge"><%= unreadCount %></span><% } %>
