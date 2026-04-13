@@ -1,0 +1,607 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title">📞 Call Operations Center</span>
+      <div class="top-bar-actions">
+        <button class="btn btn-primary btn-sm" onclick="openNewCallModal()">+ New Call</button>
+      </div>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+
+      <!-- Status Summary Bar -->
+      <div class="stats-grid" id="statusBar">
+        <div class="stat-card secondary">
+          <div class="stat-value" id="count-active"><%= activeCalls.length %></div>
+          <div class="stat-label">Active</div>
+        </div>
+        <div class="stat-card warning">
+          <div class="stat-value" id="count-hold"><%= onHoldCalls.length %></div>
+          <div class="stat-label">On Hold</div>
+        </div>
+        <div class="stat-card danger">
+          <div class="stat-value" id="count-escalating"><%= escalatingCalls.length %></div>
+          <div class="stat-label">Escalating</div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-value" id="count-completed"><%= completedToday.length %></div>
+          <div class="stat-label">Completed Today</div>
+        </div>
+      </div>
+
+      <!-- Main 2-col grid -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;" class="calls-grid">
+
+        <!-- LEFT: Active + On Hold -->
+        <div style="display:flex;flex-direction:column;gap:1.25rem;">
+
+          <!-- Active Calls -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title" style="color:var(--secondary);">⚡ Active Calls</div>
+              <span class="badge" style="background:var(--secondary);color:#000;" id="badge-active"><%= activeCalls.length %></span>
+            </div>
+            <div id="active-calls-list">
+              <% if (activeCalls.length === 0) { %>
+              <div style="text-align:center;color:var(--text-muted);padding:2rem 0;font-size:0.875rem;">No active calls</div>
+              <% } else { %>
+              <% for (const c of activeCalls) { %>
+              <%- include('partials/call-card', { call: c, techs: techs, csrfToken: csrfToken }) %>
+              <% } %>
+              <% } %>
+            </div>
+          </div>
+
+          <!-- On Hold Calls -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title" style="color:var(--warning);">⏸ On Hold</div>
+              <span class="badge" style="background:var(--warning);color:#000;" id="badge-hold"><%= onHoldCalls.length %></span>
+            </div>
+            <div id="hold-calls-list">
+              <% if (onHoldCalls.length === 0) { %>
+              <div style="text-align:center;color:var(--text-muted);padding:2rem 0;font-size:0.875rem;">No calls on hold</div>
+              <% } else { %>
+              <% for (const c of onHoldCalls) { %>
+              <%- include('partials/call-card', { call: c, techs: techs, csrfToken: csrfToken }) %>
+              <% } %>
+              <% } %>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- RIGHT: Escalating + Completed -->
+        <div style="display:flex;flex-direction:column;gap:1.25rem;">
+
+          <!-- Escalating -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title" style="color:var(--danger);">🚨 Escalating</div>
+              <span class="badge" style="background:var(--danger);color:#fff;" id="badge-escalating"><%= escalatingCalls.length %></span>
+            </div>
+            <div id="escalating-calls-list">
+              <% if (escalatingCalls.length === 0) { %>
+              <div style="text-align:center;color:var(--text-muted);padding:2rem 0;font-size:0.875rem;">No escalating calls</div>
+              <% } else { %>
+              <% for (const c of escalatingCalls) { %>
+              <%- include('partials/call-card', { call: c, techs: techs, csrfToken: csrfToken }) %>
+              <% } %>
+              <% } %>
+            </div>
+          </div>
+
+          <!-- Completed Today -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title" style="color:var(--success);">✅ Completed Today</div>
+              <span class="badge" style="background:var(--success);color:#000;" id="badge-completed"><%= completedToday.length %></span>
+            </div>
+            <div style="max-height:360px;overflow-y:auto;">
+              <% if (completedToday.length === 0) { %>
+              <div style="text-align:center;color:var(--text-muted);padding:2rem 0;font-size:0.875rem;">None completed today</div>
+              <% } else { %>
+              <% for (const c of completedToday) { %>
+              <div style="padding:0.75rem 1rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <div style="font-weight:600;font-size:0.875rem;color:var(--text-bright);"><%= c.caller_name || c.caller_phone || 'Unknown' %></div>
+                  <div style="font-size:0.75rem;color:var(--text-muted);">
+                    <% if (c.unit_number) { %><span>Unit: <%= c.unit_number %></span> <% } %>
+                    <% if (c.duration_seconds) { %><span>· <%= Math.floor(c.duration_seconds/60) %>m <%= c.duration_seconds%60 %>s</span><% } %>
+                  </div>
+                  <% if (c.issue_summary) { %><div style="font-size:0.75rem;color:var(--text-muted);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><%= c.issue_summary %></div><% } %>
+                </div>
+                <div style="text-align:right;">
+                  <span class="badge" style="background:var(--success);color:#000;font-size:0.65rem;">done</span>
+                  <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px;"><%= c.assigned_name || '—' %></div>
+                </div>
+              </div>
+              <% } %>
+              <% } %>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Escalation Order -->
+      <div class="card" style="margin-top:1.25rem;">
+        <div class="card-header">
+          <div class="card-title">📋 Escalation Order</div>
+          <a href="/nexus/escalation" class="btn btn-ghost btn-sm">Manage</a>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:0.75rem;padding:0.75rem 0;">
+          <% if (escalationList.length === 0) { %>
+          <span style="color:var(--text-muted);font-size:0.875rem;">No escalation list configured.</span>
+          <% } %>
+          <% for (const e of escalationList) { %>
+          <%
+            const avColors = {
+              'on-shift': 'var(--success)',
+              'on-call': 'var(--secondary)',
+              'unavailable': 'var(--text-muted)',
+              'out-of-service': 'var(--danger)'
+            };
+            const avColor = avColors[e.availability] || 'var(--text-muted)';
+          %>
+          <div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.85rem;border-radius:8px;border:1px solid var(--border);background:var(--bg-surface);">
+            <span style="font-size:0.7rem;color:var(--text-muted);font-weight:700;">#<%= e.priority_order + 1 %></span>
+            <span style="width:8px;height:8px;border-radius:50%;background:<%= avColor %>;display:inline-block;"></span>
+            <span style="font-size:0.875rem;color:var(--text-bright);"><%= e.name %></span>
+            <span style="font-size:0.7rem;color:<%= avColor %>;"><%= e.availability %></span>
+          </div>
+          <% } %>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- New Call Modal -->
+<div class="modal-overlay" id="newCallModal" style="display:none;" onclick="if(event.target===this)closeNewCallModal()">
+  <div class="modal" style="max-width:520px;width:95%;">
+    <div class="modal-header">
+      <div class="modal-title">📞 New Call Event</div>
+      <button class="modal-close" onclick="closeNewCallModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="newCallForm">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <div class="form-group">
+          <label class="form-label">Caller Name</label>
+          <input type="text" name="callerName" class="form-control" placeholder="John Doe">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Phone Number</label>
+          <input type="text" name="callerPhone" class="form-control" placeholder="+1 555-000-0000">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+          <div class="form-group">
+            <label class="form-label">Unit Number</label>
+            <input type="text" name="unitNumber" class="form-control" placeholder="e.g. COMP-42">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Site</label>
+            <input type="text" name="site" class="form-control" placeholder="Site name">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Issue Summary</label>
+          <textarea name="issueSummary" class="form-control" rows="3" placeholder="Brief description of the issue..."></textarea>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
+          <input type="checkbox" id="createTicketCheck" name="createTicket" value="true" onchange="toggleTicketFields(this)">
+          <label for="createTicketCheck" style="margin:0;cursor:pointer;font-size:0.875rem;">Also create work order</label>
+        </div>
+        <div id="ticketFields" style="display:none;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+            <div class="form-group">
+              <label class="form-label">Priority</label>
+              <select name="priority" class="form-control">
+                <option value="P1">P1 — Critical</option>
+                <option value="P2">P2 — High</option>
+                <option value="P3" selected>P3 — Normal</option>
+                <option value="P4">P4 — Low</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Category</label>
+              <select name="category" class="form-control">
+                <option value="general" selected>General</option>
+                <option value="electrical">Electrical</option>
+                <option value="mechanical">Mechanical</option>
+                <option value="instrumentation">Instrumentation</option>
+                <option value="controls">Controls</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div id="repeatIssueAlert" style="display:none;background:rgba(255,211,10,0.12);border:1px solid var(--warning);border-radius:6px;padding:0.75rem;margin-top:0.5rem;font-size:0.85rem;color:var(--warning);">
+          ⚠️ <strong>Repeat Issue:</strong> <span id="repeatIssueText"></span>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeNewCallModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitNewCall()" id="submitCallBtn">Create Call</button>
+    </div>
+  </div>
+</div>
+
+<!-- Assign Modal -->
+<div class="modal-overlay" id="assignModal" style="display:none;" onclick="if(event.target===this)closeAssignModal()">
+  <div class="modal" style="max-width:380px;width:95%;">
+    <div class="modal-header">
+      <div class="modal-title">Assign Call</div>
+      <button class="modal-close" onclick="closeAssignModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Assign To</label>
+        <select id="assignUserId" class="form-control">
+          <% for (const t of techs) { %>
+          <option value="<%= t.id %>"><%= t.name %></option>
+          <% } %>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeAssignModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAssign()">Assign</button>
+    </div>
+  </div>
+</div>
+
+<!-- End Call Modal -->
+<div class="modal-overlay" id="endCallModal" style="display:none;" onclick="if(event.target===this)closeEndCallModal()">
+  <div class="modal" style="max-width:420px;width:95%;">
+    <div class="modal-header">
+      <div class="modal-title">End Call</div>
+      <button class="modal-close" onclick="closeEndCallModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Duration (seconds)</label>
+        <input type="number" id="endDuration" class="form-control" placeholder="0" min="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Transcript (optional)</label>
+        <textarea id="endTranscript" class="form-control" rows="4" placeholder="Call transcript or summary..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeEndCallModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="submitEndCall()">End Call</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create Ticket from Call Modal -->
+<div class="modal-overlay" id="ticketFromCallModal" style="display:none;" onclick="if(event.target===this)closeTicketModal()">
+  <div class="modal" style="max-width:500px;width:95%;">
+    <div class="modal-header">
+      <div class="modal-title">Create Work Order from Call</div>
+      <button class="modal-close" onclick="closeTicketModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Title</label>
+        <input type="text" id="tfcTitle" class="form-control" placeholder="Issue title...">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea id="tfcDescription" class="form-control" rows="3" placeholder="Describe the issue..."></textarea>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+        <div class="form-group">
+          <label class="form-label">Priority</label>
+          <select id="tfcPriority" class="form-control">
+            <option value="P1">P1 — Critical</option>
+            <option value="P2">P2 — High</option>
+            <option value="P3" selected>P3 — Normal</option>
+            <option value="P4">P4 — Low</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <select id="tfcCategory" class="form-control">
+            <option value="general" selected>General</option>
+            <option value="electrical">Electrical</option>
+            <option value="mechanical">Mechanical</option>
+            <option value="instrumentation">Instrumentation</option>
+            <option value="controls">Controls</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Assign To</label>
+        <select id="tfcAssigned" class="form-control">
+          <option value="">— Unassigned —</option>
+          <% for (const t of techs) { %>
+          <option value="<%= t.id %>"><%= t.name %></option>
+          <% } %>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeTicketModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitTicketFromCall()">Create Work Order</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.calls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+@media (max-width: 900px) { .calls-grid { grid-template-columns: 1fr; } }
+
+.call-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.875rem 1rem;
+  margin-bottom: 0.75rem;
+  background: var(--bg-deep);
+  position: relative;
+  transition: border-color 0.2s;
+}
+.call-card.active { border-left: 3px solid var(--secondary); }
+.call-card.on-hold { border-left: 3px solid var(--warning); }
+.call-card.escalating { border-left: 3px solid var(--danger); }
+.call-card.connected { border-left: 3px solid var(--success); }
+
+.call-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+.call-card-meta { display: flex; flex-wrap: wrap; gap: 0.5rem; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+.call-card-meta span { display: flex; align-items: center; gap: 0.25rem; }
+.call-card-issue { font-size: 0.8rem; color: var(--text); margin-bottom: 0.5rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.call-card-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.5rem; }
+.call-card-assigned { font-size: 0.75rem; color: var(--text-muted); }
+
+.call-timer { font-size: 0.75rem; color: var(--warning); font-family: var(--font-display); font-weight: 700; }
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal {
+  background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden; display: flex; flex-direction: column; max-height: 90vh;
+}
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);
+}
+.modal-title { font-size: 1rem; font-weight: 700; color: var(--text-bright); }
+.modal-close { background: none; border: none; color: var(--text-muted); font-size: 1.1rem; cursor: pointer; padding: 0; }
+.modal-close:hover { color: var(--text-bright); }
+.modal-body { padding: 1.25rem; overflow-y: auto; }
+.modal-footer { padding: 1rem 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 0.75rem; }
+</style>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+const CSRF = '<%= csrfToken %>';
+let activeCallId = null;
+let timerIntervals = {};
+
+// ─── Elapsed Timers ───────────────────────────────────────────────────────────
+function startTimers() {
+  document.querySelectorAll('[data-created-at]').forEach(el => {
+    const id = el.dataset.callId;
+    if (timerIntervals[id]) clearInterval(timerIntervals[id]);
+    timerIntervals[id] = setInterval(() => updateTimer(el), 1000);
+    updateTimer(el);
+  });
+}
+
+function updateTimer(el) {
+  const created = new Date(el.dataset.createdAt);
+  const now = new Date();
+  const secs = Math.floor((now - created) / 1000);
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  el.textContent = `${m}m ${String(s).padStart(2,'0')}s`;
+}
+
+// ─── New Call Modal ───────────────────────────────────────────────────────────
+function openNewCallModal() {
+  document.getElementById('newCallForm').reset();
+  document.getElementById('ticketFields').style.display = 'none';
+  document.getElementById('repeatIssueAlert').style.display = 'none';
+  document.getElementById('newCallModal').style.display = 'flex';
+}
+function closeNewCallModal() {
+  document.getElementById('newCallModal').style.display = 'none';
+}
+function toggleTicketFields(cb) {
+  document.getElementById('ticketFields').style.display = cb.checked ? 'block' : 'none';
+}
+
+async function submitNewCall() {
+  const form = document.getElementById('newCallForm');
+  const fd = new FormData(form);
+  const data = Object.fromEntries(fd.entries());
+  const btn = document.getElementById('submitCallBtn');
+  btn.disabled = true; btn.textContent = 'Creating...';
+
+  try {
+    const r = await fetch('/nexus/calls/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      body: JSON.stringify(data)
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+
+    if (j.repeatIssue) {
+      document.getElementById('repeatIssueText').textContent =
+        `Prior ticket ${j.repeatIssue.ticket_number} for this unit (${j.repeatIssue.title}) — ${new Date(j.repeatIssue.created_at).toLocaleDateString()}`;
+      document.getElementById('repeatIssueAlert').style.display = 'block';
+    }
+
+    closeNewCallModal();
+
+    if (j.ticket) {
+      showToast(`Call created + Work Order ${j.ticket.ticket_number}`, 'success');
+    } else {
+      showToast('Call event created', 'success');
+    }
+
+    setTimeout(() => location.reload(), 800);
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Create Call';
+  }
+}
+
+// ─── Assign Modal ─────────────────────────────────────────────────────────────
+function openAssignModal(callId) {
+  activeCallId = callId;
+  document.getElementById('assignModal').style.display = 'flex';
+}
+function closeAssignModal() {
+  document.getElementById('assignModal').style.display = 'none';
+  activeCallId = null;
+}
+async function submitAssign() {
+  const userId = document.getElementById('assignUserId').value;
+  try {
+    const r = await fetch(`/nexus/calls/${activeCallId}/assign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      body: JSON.stringify({ userId })
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    closeAssignModal();
+    showToast('Call assigned', 'success');
+    setTimeout(() => location.reload(), 600);
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// ─── Escalate ─────────────────────────────────────────────────────────────────
+async function escalateCall(callId) {
+  try {
+    const r = await fetch(`/nexus/calls/${callId}/escalate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      body: '{}'
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    if (j.escalated) {
+      showToast(`Escalated to ${j.assignedTo.name}`, 'success');
+    } else {
+      showToast('No techs available — call placed on hold', 'warning');
+    }
+    setTimeout(() => location.reload(), 800);
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// ─── End Call Modal ───────────────────────────────────────────────────────────
+function openEndCallModal(callId) {
+  activeCallId = callId;
+  document.getElementById('endDuration').value = '';
+  document.getElementById('endTranscript').value = '';
+  document.getElementById('endCallModal').style.display = 'flex';
+}
+function closeEndCallModal() {
+  document.getElementById('endCallModal').style.display = 'none';
+  activeCallId = null;
+}
+async function submitEndCall() {
+  const durationSeconds = document.getElementById('endDuration').value;
+  const transcript = document.getElementById('endTranscript').value;
+  try {
+    const r = await fetch(`/nexus/calls/${activeCallId}/end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      body: JSON.stringify({ durationSeconds, transcript })
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    closeEndCallModal();
+    showToast('Call ended', 'success');
+    setTimeout(() => location.reload(), 600);
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// ─── Ticket from Call Modal ───────────────────────────────────────────────────
+function openTicketModal(callId, summary) {
+  activeCallId = callId;
+  document.getElementById('tfcTitle').value = summary || '';
+  document.getElementById('tfcDescription').value = summary || '';
+  document.getElementById('ticketFromCallModal').style.display = 'flex';
+}
+function closeTicketModal() {
+  document.getElementById('ticketFromCallModal').style.display = 'none';
+  activeCallId = null;
+}
+async function submitTicketFromCall() {
+  const payload = {
+    title: document.getElementById('tfcTitle').value,
+    description: document.getElementById('tfcDescription').value,
+    priority: document.getElementById('tfcPriority').value,
+    category: document.getElementById('tfcCategory').value,
+    assignedTo: document.getElementById('tfcAssigned').value
+  };
+  try {
+    const r = await fetch(`/nexus/calls/${activeCallId}/create-ticket`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    closeTicketModal();
+    showToast(`Work Order ${j.ticketNumber} created`, 'success');
+    setTimeout(() => location.reload(), 800);
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// ─── Live Polling ─────────────────────────────────────────────────────────────
+function updateStatusCounts(counts) {
+  document.getElementById('count-active').textContent = counts.active;
+  document.getElementById('count-hold').textContent = counts.onHold;
+  document.getElementById('count-escalating').textContent = counts.escalating;
+  document.getElementById('count-completed').textContent = counts.completedToday;
+  document.getElementById('badge-active').textContent = counts.active;
+  document.getElementById('badge-hold').textContent = counts.onHold;
+  document.getElementById('badge-escalating').textContent = counts.escalating;
+  document.getElementById('badge-completed').textContent = counts.completedToday;
+}
+
+setInterval(async () => {
+  try {
+    const r = await fetch('/nexus/calls/api/status', { headers: { 'X-CSRF-Token': CSRF } });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (j.ok) updateStatusCounts(j.counts);
+  } catch (_) {}
+}, 10000);
+
+// ─── Toast Notifications ──────────────────────────────────────────────────────
+function showToast(msg, type = 'success') {
+  const existing = document.getElementById('nexus-toast');
+  if (existing) existing.remove();
+  const t = document.createElement('div');
+  t.id = 'nexus-toast';
+  t.style.cssText = `position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;padding:0.75rem 1.25rem;border-radius:8px;font-size:0.875rem;font-weight:600;color:#fff;max-width:320px;box-shadow:0 4px 20px rgba(0,0,0,0.4);transition:opacity 0.3s;`;
+  const bgMap = { success: 'var(--success)', error: 'var(--danger)', warning: 'var(--warning)' };
+  t.style.background = bgMap[type] || bgMap.success;
+  if (type === 'success' || type === 'warning') t.style.color = '#000';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3000);
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+startTimers();
+</script>
+<script src="/public/js/app.js"></script>
+</body>
+</html>

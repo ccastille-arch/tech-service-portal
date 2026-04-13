@@ -31,6 +31,15 @@
     <a href="/admin" class="nav-link <%= locals.title && title.includes('Admin Panel') ? 'active' : '' %>">
       <span class="nav-icon">🛡</span> Admin Panel
     </a>
+    <a href="/nexus/calls" class="nav-link <%= locals.title && title.includes('Call Operations') ? 'active' : '' %>">
+      <span class="nav-icon">📞</span> Calls
+    </a>
+    <a href="/nexus/scheduler" class="nav-link <%= locals.title && title.includes('Scheduler') ? 'active' : '' %>">
+      <span class="nav-icon">📅</span> Scheduler
+    </a>
+    <a href="/nexus/escalation" class="nav-link <%= locals.title && title.includes('Escalation') ? 'active' : '' %>">
+      <span class="nav-icon">🚨</span> Escalation
+    </a>
     <a href="/reports" class="nav-link <%= locals.title && title.includes('Report') ? 'active' : '' %>">
       <span class="nav-icon">📈</span> Reports & Analytics
     </a>

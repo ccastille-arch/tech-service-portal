@@ -1,0 +1,265 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title">📅 Tech Scheduler</span>
+      <div class="top-bar-actions">
+        <a href="/nexus/calls" class="btn btn-ghost btn-sm">← Call Ops</a>
+        <a href="/nexus/escalation" class="btn btn-ghost btn-sm">Escalation</a>
+      </div>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+
+      <div class="card" style="margin-bottom:1.25rem;">
+        <div class="card-header">
+          <div class="card-title">7-Day Shift Schedule</div>
+          <div style="font-size:0.8rem;color:var(--text-muted);">Click any cell to edit that day's schedule</div>
+        </div>
+
+        <!-- Scrollable table wrapper -->
+        <div style="overflow-x:auto;padding:0 0 0.5rem;">
+          <table style="width:100%;border-collapse:collapse;min-width:700px;">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border);">
+                <th style="padding:0.75rem 1rem;text-align:left;font-size:0.8rem;color:var(--text-muted);font-weight:600;min-width:140px;">Technician</th>
+                <% for (let i = 0; i < dates.length; i++) {
+                  const d = new Date(dates[i] + 'T00:00:00');
+                  const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+                  const dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  const isToday = i === 0;
+                %>
+                <th style="padding:0.75rem 0.5rem;text-align:center;font-size:0.8rem;font-weight:600;color:<%= isToday ? 'var(--primary)' : 'var(--text-muted)' %>;">
+                  <div><%= dayName %></div>
+                  <div style="font-size:0.7rem;color:<%= isToday ? 'var(--primary)' : 'var(--text-muted)' %>;"><%= dateLabel %></div>
+                </th>
+                <% } %>
+              </tr>
+            </thead>
+            <tbody>
+              <% for (const tech of techs) { %>
+              <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:0.75rem 1rem;vertical-align:middle;">
+                  <div style="font-weight:600;font-size:0.875rem;color:var(--text-bright);"><%= tech.name %></div>
+                  <span class="badge" style="background:rgba(255,107,0,0.15);color:var(--primary);font-size:0.65rem;"><%= tech.role %></span>
+                </td>
+                <% for (const date of dates) {
+                  const cell = (scheduleMap[tech.id] && scheduleMap[tech.id][date]) || null;
+                  const isToday = date === dates[0];
+                  const onCall = cell && cell.on_call;
+                  const hasShift = cell && (cell.shift_start || cell.shift_end);
+                %>
+                <td style="padding:0.25rem 0.4rem;vertical-align:middle;text-align:center;background:<%= isToday ? 'rgba(255,107,0,0.04)' : 'transparent' %>;">
+                  <div class="sched-cell" onclick="openEditModal('<%= tech.id %>', '<%= tech.name %>', '<%= date %>', '<%= cell ? cell.shift_start || '' : '' %>', '<%= cell ? cell.shift_end || '' : '' %>', <%= cell && cell.on_call ? 'true' : 'false' %>, '<%= cell ? (cell.notes || '').replace(/'/g,'') : '' %>')"
+                       style="cursor:pointer;border-radius:6px;padding:0.5rem 0.25rem;border:1px solid <%= (hasShift || onCall) ? (onCall ? 'var(--secondary)' : 'var(--success)') : 'var(--border)' %>;min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:border-color 0.15s,background 0.15s;"
+                       onmouseenter="this.style.borderColor='var(--primary)'"
+                       onmouseleave="this.style.borderColor='<%= (hasShift || onCall) ? (onCall ? 'var(--secondary)' : 'var(--success)') : 'var(--border)' %>'">
+                    <% if (onCall) { %>
+                    <span style="font-size:0.65rem;font-weight:700;color:var(--secondary);letter-spacing:.05em;">ON CALL</span>
+                    <% } %>
+                    <% if (cell && cell.shift_start) { %>
+                    <span style="font-size:0.7rem;color:var(--text-bright);">
+                      <%= cell.shift_start %><% if (cell.shift_end) { %> – <%= cell.shift_end %><% } %>
+                    </span>
+                    <% } else if (!onCall) { %>
+                    <span style="font-size:0.7rem;color:var(--text-muted);">—</span>
+                    <% } %>
+                    <% if (cell && cell.notes) { %>
+                    <span style="font-size:0.65rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:80px;" title="<%= cell.notes %>"><%= cell.notes.slice(0,14) %><%= cell.notes.length > 14 ? '…' : '' %></span>
+                    <% } %>
+                  </div>
+                </td>
+                <% } %>
+              </tr>
+              <% } %>
+              <% if (techs.length === 0) { %>
+              <tr>
+                <td colspan="<%= dates.length + 1 %>" style="text-align:center;color:var(--text-muted);padding:2rem;">No technicians found.</td>
+              </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Escalation quick-view -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Current Escalation Order</div>
+          <a href="/nexus/escalation" class="btn btn-ghost btn-sm">Manage</a>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:0.6rem;padding:0.75rem 1rem 1rem;">
+          <% if (escalationList.length === 0) { %>
+          <span style="color:var(--text-muted);font-size:0.875rem;">No escalation list configured.</span>
+          <% } %>
+          <% for (const e of escalationList) {
+            const avColors = { 'on-shift': 'var(--success)', 'on-call': 'var(--secondary)', 'unavailable': 'var(--text-muted)', 'out-of-service': 'var(--danger)' };
+            const avColor = avColors[e.availability] || 'var(--text-muted)';
+          %>
+          <div style="display:flex;align-items:center;gap:0.4rem;padding:0.4rem 0.75rem;border-radius:6px;border:1px solid var(--border);background:var(--bg-surface);">
+            <span style="font-size:0.7rem;color:var(--text-muted);font-weight:700;">#<%= e.priority_order + 1 %></span>
+            <span style="width:7px;height:7px;border-radius:50%;background:<%= avColor %>;display:inline-block;"></span>
+            <span style="font-size:0.825rem;color:var(--text-bright);"><%= e.name %></span>
+            <span style="font-size:0.7rem;color:<%= avColor %>;"><%= e.availability %></span>
+          </div>
+          <% } %>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Edit Cell Modal -->
+<div class="modal-overlay" id="editModal" style="display:none;" onclick="if(event.target===this)closeEditModal()">
+  <div class="modal" style="max-width:420px;width:95%;">
+    <div class="modal-header">
+      <div class="modal-title" id="editModalTitle">Edit Schedule</div>
+      <button class="modal-close" onclick="closeEditModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editUserId">
+      <input type="hidden" id="editDate">
+      <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:1rem;" id="editSubtitle"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+        <div class="form-group">
+          <label class="form-label">Shift Start</label>
+          <input type="time" id="editShiftStart" class="form-control">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Shift End</label>
+          <input type="time" id="editShiftEnd" class="form-control">
+        </div>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
+        <input type="checkbox" id="editOnCall">
+        <label for="editOnCall" style="margin:0;cursor:pointer;font-size:0.875rem;">On Call this day</label>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <input type="text" id="editNotes" class="form-control" placeholder="Optional note...">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="clearSchedule()">Clear Day</button>
+      <button class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSchedule()">Save</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.sched-cell:hover { background: rgba(255,107,0,0.06) !important; }
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal {
+  background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden; display: flex; flex-direction: column; max-height: 90vh;
+}
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);
+}
+.modal-title { font-size: 1rem; font-weight: 700; color: var(--text-bright); }
+.modal-close { background: none; border: none; color: var(--text-muted); font-size: 1.1rem; cursor: pointer; padding: 0; }
+.modal-close:hover { color: var(--text-bright); }
+.modal-body { padding: 1.25rem; overflow-y: auto; }
+.modal-footer { padding: 1rem 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 0.75rem; }
+</style>
+
+<script>
+const CSRF = '<%= csrfToken %>';
+
+function openEditModal(userId, userName, date, shiftStart, shiftEnd, onCall, notes) {
+  document.getElementById('editUserId').value = userId;
+  document.getElementById('editDate').value = date;
+  const d = new Date(date + 'T00:00:00');
+  const label = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  document.getElementById('editModalTitle').textContent = 'Schedule: ' + userName;
+  document.getElementById('editSubtitle').textContent = label;
+  document.getElementById('editShiftStart').value = shiftStart || '';
+  document.getElementById('editShiftEnd').value = shiftEnd || '';
+  document.getElementById('editOnCall').checked = onCall === true || onCall === 'true';
+  document.getElementById('editNotes').value = notes || '';
+  document.getElementById('editModal').style.display = 'flex';
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').style.display = 'none';
+}
+
+async function saveSchedule() {
+  const payload = {
+    userId: document.getElementById('editUserId').value,
+    date: document.getElementById('editDate').value,
+    shiftStart: document.getElementById('editShiftStart').value || null,
+    shiftEnd: document.getElementById('editShiftEnd').value || null,
+    onCall: document.getElementById('editOnCall').checked ? 'true' : 'false',
+    notes: document.getElementById('editNotes').value || null
+  };
+
+  try {
+    const r = await fetch('/nexus/scheduler/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    closeEditModal();
+    showToast('Schedule saved', 'success');
+    setTimeout(() => location.reload(), 500);
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+async function clearSchedule() {
+  const payload = {
+    userId: document.getElementById('editUserId').value,
+    date: document.getElementById('editDate').value,
+    shiftStart: null,
+    shiftEnd: null,
+    onCall: 'false',
+    notes: null
+  };
+
+  try {
+    const r = await fetch('/nexus/scheduler/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    closeEditModal();
+    showToast('Schedule cleared', 'success');
+    setTimeout(() => location.reload(), 500);
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+function showToast(msg, type = 'success') {
+  const existing = document.getElementById('sched-toast');
+  if (existing) existing.remove();
+  const t = document.createElement('div');
+  t.id = 'sched-toast';
+  t.style.cssText = `position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;padding:0.75rem 1.25rem;border-radius:8px;font-size:0.875rem;font-weight:600;max-width:300px;box-shadow:0 4px 20px rgba(0,0,0,0.4);transition:opacity 0.3s;`;
+  const bgMap = { success: 'var(--success)', error: 'var(--danger)', warning: 'var(--warning)' };
+  t.style.background = bgMap[type] || bgMap.success;
+  t.style.color = type === 'error' ? '#fff' : '#000';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 2500);
+}
+</script>
+<script src="/public/js/app.js"></script>
+</body>
+</html>

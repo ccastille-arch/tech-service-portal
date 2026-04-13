@@ -1,0 +1,43 @@
+<%
+const statusColors = {
+  'active': 'var(--secondary)',
+  'on-hold': 'var(--warning)',
+  'escalating': 'var(--danger)',
+  'connected': 'var(--success)',
+  'completed': '#888',
+  'abandoned': '#555'
+};
+const sColor = statusColors[call.status] || 'var(--text-muted)';
+const badgeBg = { 'active': 'var(--secondary)', 'on-hold': 'var(--warning)', 'escalating': 'var(--danger)', 'connected': 'var(--success)', 'completed': '#555', 'abandoned': '#333' };
+const bbg = badgeBg[call.status] || '#555';
+const textDark = ['active','on-hold','connected'].includes(call.status);
+%>
+<div class="call-card <%= call.status %>">
+  <div class="call-card-header">
+    <span class="badge" style="background:<%= bbg %>;color:<%= textDark ? '#000' : '#fff' %>;font-size:0.65rem;text-transform:uppercase;letter-spacing:.04em;"><%= call.status %></span>
+    <span class="call-timer" data-call-id="<%= call.id %>" data-created-at="<%= call.created_at %>">—</span>
+  </div>
+  <div class="call-card-meta">
+    <% if (call.caller_name) { %><span>👤 <%= call.caller_name %></span><% } %>
+    <% if (call.caller_phone) { %><span>📞 <%= call.caller_phone %></span><% } %>
+    <% if (call.unit_number) { %><span>⚙ Unit: <%= call.unit_number %></span><% } %>
+    <% if (call.site) { %><span>📍 <%= call.site %></span><% } %>
+  </div>
+  <% if (call.issue_summary) { %>
+  <div class="call-card-issue">Issue: <%= call.issue_summary %></div>
+  <% } %>
+  <div class="call-card-assigned">
+    Assigned: <strong><%= call.assigned_name || 'Unassigned' %></strong>
+    <% if (call.linked_ticket_id) { %>
+    · <a href="/tickets/<%= call.linked_ticket_id %>" style="color:var(--primary);font-size:0.75rem;">View Ticket</a>
+    <% } %>
+  </div>
+  <div class="call-card-actions">
+    <button class="btn btn-ghost btn-sm" onclick="openAssignModal('<%= call.id %>')" title="Assign">Assign ▾</button>
+    <button class="btn btn-sm" style="background:rgba(255,51,85,0.15);color:var(--danger);border:1px solid var(--danger);" onclick="escalateCall('<%= call.id %>')" title="Escalate">Escalate</button>
+    <button class="btn btn-sm" style="background:rgba(255,107,0,0.15);color:var(--primary);border:1px solid var(--primary);" onclick="openEndCallModal('<%= call.id %>')" title="End Call">End</button>
+    <% if (!call.linked_ticket_id) { %>
+    <button class="btn btn-sm" style="background:rgba(0,200,232,0.1);color:var(--secondary);border:1px solid var(--secondary);" onclick="openTicketModal('<%= call.id %>', '<%= (call.issue_summary || '').replace(/'/g, '') %>')" title="Create Ticket">+ Ticket</button>
+    <% } %>
+  </div>
+</div>

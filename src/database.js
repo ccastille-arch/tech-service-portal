@@ -262,6 +262,98 @@ function initializeDatabase() {
   seedUsers(db);
   seedIntegrations(db);
   seedChangelog(db);
+  initNexusSchema(db);
+}
+
+function initNexusSchema(db) {
+  // ALTER TABLE tickets — wrapped individually so they fail silently if column exists
+  const alterCols = [
+    'ALTER TABLE tickets ADD COLUMN call_event_id TEXT',
+    'ALTER TABLE tickets ADD COLUMN call_source TEXT',
+    'ALTER TABLE tickets ADD COLUMN caller_name TEXT',
+    'ALTER TABLE tickets ADD COLUMN caller_phone TEXT',
+    'ALTER TABLE tickets ADD COLUMN unit_number TEXT',
+    'ALTER TABLE tickets ADD COLUMN site TEXT',
+    'ALTER TABLE tickets ADD COLUMN repeat_issue_flag INTEGER DEFAULT 0',
+    'ALTER TABLE tickets ADD COLUMN previous_ticket_id TEXT',
+    'ALTER TABLE tickets ADD COLUMN call_transcript TEXT',
+    'ALTER TABLE tickets ADD COLUMN escalation_level INTEGER DEFAULT 0',
+    "ALTER TABLE tickets ADD COLUMN assigned_via TEXT DEFAULT 'manual'",
+  ];
+  for (const sql of alterCols) {
+    try { db.exec(sql); } catch (_) { /* column already exists */ }
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS call_events (
+      id TEXT PRIMARY KEY,
+      caller_phone TEXT,
+      caller_name TEXT,
+      unit_number TEXT,
+      site TEXT,
+      issue_summary TEXT,
+      status TEXT DEFAULT 'active' CHECK(status IN ('active','on-hold','escalating','connected','completed','abandoned')),
+      assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      answered_by TEXT,
+      escalation_path TEXT DEFAULT '[]',
+      duration_seconds INTEGER,
+      linked_ticket_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+      transcript TEXT,
+      source TEXT DEFAULT 'manual' CHECK(source IN ('manual','twilio','ai','inbound')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS escalation_list (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      priority_order INTEGER NOT NULL DEFAULT 0,
+      availability TEXT NOT NULL DEFAULT 'on-shift' CHECK(availability IN ('on-shift','on-call','unavailable','out-of-service')),
+      phone TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS call_attempts (
+      id TEXT PRIMARY KEY,
+      call_event_id TEXT NOT NULL REFERENCES call_events(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      attempted_at TEXT NOT NULL,
+      result TEXT DEFAULT 'no-answer' CHECK(result IN ('answered','no-answer','busy','declined','voicemail')),
+      notes TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS tech_schedule (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      date TEXT NOT NULL,
+      shift_start TEXT,
+      shift_end TEXT,
+      on_call INTEGER DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(user_id, date)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_call_events_status ON call_events(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_escalation_list_order ON escalation_list(priority_order);
+  `);
+
+  seedEscalationList(db);
+}
+
+function seedEscalationList(db) {
+  const count = db.prepare('SELECT COUNT(*) as c FROM escalation_list').get().c;
+  if (count > 0) return;
+  const techs = db.prepare("SELECT id FROM users WHERE role='tech' ORDER BY created_at").all();
+  const now = new Date().toISOString();
+  techs.forEach((u, i) => {
+    db.prepare('INSERT OR IGNORE INTO escalation_list (id, user_id, priority_order, availability, created_at, updated_at) VALUES (?,?,?,?,?,?)')
+      .run(uuidv4(), u.id, i, 'on-shift', now, now);
+  });
 }
 
 function seedChangelog(db) {

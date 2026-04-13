@@ -163,6 +163,8 @@ app.use('/integrations', integrationRoutes);
 app.use('/sync', syncRoutes);
 app.use('/calls', voiceRoutes);
 app.use('/fleet', fleetRoutes);
+const nexusCallsRoutes = require('./routes/nexus-calls');
+app.use('/nexus', nexusCallsRoutes);
 app.use('/admin', adminRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/', communityRoutes);

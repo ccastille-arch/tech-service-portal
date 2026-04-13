@@ -1,0 +1,284 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title">🚨 Escalation Order</span>
+      <div class="top-bar-actions">
+        <a href="/nexus/calls" class="btn btn-ghost btn-sm">← Call Ops</a>
+        <button class="btn btn-primary btn-sm" onclick="saveOrder()">Save Order</button>
+      </div>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;align-items:start;" class="esc-grid">
+
+        <!-- Drag-and-drop escalation list -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Call Escalation Priority</div>
+          </div>
+          <div style="padding:0.75rem 0 0.25rem;font-size:0.8rem;color:var(--text-muted);padding-left:1rem;">
+            Drag to reorder. Change availability via dropdown. Changes auto-save on availability change.
+          </div>
+          <div id="escalationList" style="padding:0.5rem 1rem 1rem;">
+            <% if (escalationList.length === 0) { %>
+            <div style="text-align:center;color:var(--text-muted);padding:2rem 0;">No users in escalation list. Add tech users to the system.</div>
+            <% } %>
+            <% for (let i = 0; i < escalationList.length; i++) {
+              const e = escalationList[i];
+              const avColors = {
+                'on-shift': 'var(--success)',
+                'on-call': 'var(--secondary)',
+                'unavailable': 'var(--text-muted)',
+                'out-of-service': 'var(--danger)'
+              };
+              const avColor = avColors[e.availability] || 'var(--text-muted)';
+              const borderColors = {
+                'on-shift': '#00d4a0',
+                'on-call': '#00c8e8',
+                'unavailable': '#444',
+                'out-of-service': '#ff3355'
+              };
+              const borderC = borderColors[e.availability] || '#444';
+            %>
+            <div class="esc-item" data-user-id="<%= e.user_id %>" data-order="<%= i %>"
+                 draggable="true"
+                 style="display:flex;align-items:center;gap:0.75rem;padding:0.875rem;margin-bottom:0.5rem;background:var(--bg-deep);border:1.5px solid <%= borderC %>;border-radius:8px;cursor:grab;transition:border-color 0.2s,box-shadow 0.2s;">
+              <!-- Drag handle -->
+              <span class="drag-handle" style="color:var(--text-muted);font-size:1.2rem;cursor:grab;user-select:none;">⠿</span>
+              <!-- Priority number -->
+              <span class="order-num" style="font-size:0.75rem;font-weight:700;color:var(--text-muted);min-width:20px;">#<%= i + 1 %></span>
+              <!-- User info -->
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;color:var(--text-bright);font-size:0.9rem;"><%= e.name %></div>
+                <div style="font-size:0.75rem;color:var(--text-muted);">
+                  <span class="badge" style="background:rgba(255,107,0,0.15);color:var(--primary);font-size:0.65rem;"><%= e.role %></span>
+                  <% if (e.email) { %><span style="margin-left:4px;"><%= e.email %></span><% } %>
+                </div>
+              </div>
+              <!-- Availability dropdown -->
+              <select class="form-control" style="width:auto;font-size:0.8rem;padding:0.3rem 0.5rem;color:<%= avColor %>;"
+                      onchange="updateAvailability('<%= e.user_id %>', this.value, this)">
+                <option value="on-shift" <%= e.availability === 'on-shift' ? 'selected' : '' %>>On Shift</option>
+                <option value="on-call" <%= e.availability === 'on-call' ? 'selected' : '' %>>On Call</option>
+                <option value="unavailable" <%= e.availability === 'unavailable' ? 'selected' : '' %>>Unavailable</option>
+                <option value="out-of-service" <%= e.availability === 'out-of-service' ? 'selected' : '' %>>Out of Service</option>
+              </select>
+            </div>
+            <% } %>
+          </div>
+          <div style="padding:0 1rem 1rem;display:flex;justify-content:flex-end;">
+            <button class="btn btn-primary btn-sm" onclick="saveOrder()">Save Order</button>
+          </div>
+        </div>
+
+        <!-- Info panel -->
+        <div style="display:flex;flex-direction:column;gap:1rem;">
+          <div class="card">
+            <div class="card-header"><div class="card-title">Availability Legend</div></div>
+            <div style="padding:1rem;display:flex;flex-direction:column;gap:0.6rem;">
+              <div style="display:flex;align-items:center;gap:0.75rem;">
+                <span style="width:12px;height:12px;border-radius:50%;background:var(--success);display:inline-block;"></span>
+                <div>
+                  <div style="font-size:0.875rem;color:var(--text-bright);font-weight:600;">On Shift</div>
+                  <div style="font-size:0.75rem;color:var(--text-muted);">Available and working during regular hours</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:0.75rem;">
+                <span style="width:12px;height:12px;border-radius:50%;background:var(--secondary);display:inline-block;"></span>
+                <div>
+                  <div style="font-size:0.875rem;color:var(--text-bright);font-weight:600;">On Call</div>
+                  <div style="font-size:0.75rem;color:var(--text-muted);">Off-hours but available for urgent issues</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:0.75rem;">
+                <span style="width:12px;height:12px;border-radius:50%;background:#666;display:inline-block;"></span>
+                <div>
+                  <div style="font-size:0.875rem;color:var(--text-bright);font-weight:600;">Unavailable</div>
+                  <div style="font-size:0.75rem;color:var(--text-muted);">Temporarily not available for escalation</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:0.75rem;">
+                <span style="width:12px;height:12px;border-radius:50%;background:var(--danger);display:inline-block;"></span>
+                <div>
+                  <div style="font-size:0.875rem;color:var(--text-bright);font-weight:600;">Out of Service</div>
+                  <div style="font-size:0.75rem;color:var(--text-muted);">On leave / long-term absence</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><div class="card-title">Escalation Rules</div></div>
+            <div style="padding:1rem;font-size:0.85rem;color:var(--text);line-height:1.7;">
+              <p style="margin:0 0 0.5rem;">When a call is escalated, the system contacts techs in priority order.</p>
+              <ul style="margin:0;padding-left:1.25rem;color:var(--text-muted);">
+                <li>Only <strong style="color:var(--success);">On Shift</strong> and <strong style="color:var(--secondary);">On Call</strong> techs are included</li>
+                <li>Each tech is attempted once per call event</li>
+                <li>If all available techs are exhausted, the call is placed <strong style="color:var(--warning);">On Hold</strong></li>
+                <li>Drag items to change escalation order</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.esc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start; }
+@media (max-width: 800px) { .esc-grid { grid-template-columns: 1fr; } }
+
+.esc-item.drag-over {
+  box-shadow: 0 0 0 2px var(--primary);
+  opacity: 0.85;
+}
+.esc-item.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+</style>
+
+<script>
+const CSRF = '<%= csrfToken %>';
+const list = document.getElementById('escalationList');
+let dragSrc = null;
+
+// ─── Drag & Drop ──────────────────────────────────────────────────────────────
+list.addEventListener('dragstart', (e) => {
+  dragSrc = e.target.closest('.esc-item');
+  if (!dragSrc) return;
+  dragSrc.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragSrc.dataset.userId);
+});
+
+list.addEventListener('dragend', (e) => {
+  document.querySelectorAll('.esc-item').forEach(el => {
+    el.classList.remove('dragging', 'drag-over');
+  });
+  dragSrc = null;
+  renumberItems();
+});
+
+list.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  const target = e.target.closest('.esc-item');
+  if (!target || target === dragSrc) return;
+  document.querySelectorAll('.esc-item').forEach(el => el.classList.remove('drag-over'));
+  target.classList.add('drag-over');
+  e.dataTransfer.dropEffect = 'move';
+});
+
+list.addEventListener('dragleave', (e) => {
+  const target = e.target.closest('.esc-item');
+  if (target) target.classList.remove('drag-over');
+});
+
+list.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const target = e.target.closest('.esc-item');
+  if (!target || !dragSrc || target === dragSrc) return;
+
+  const items = [...list.querySelectorAll('.esc-item')];
+  const srcIdx = items.indexOf(dragSrc);
+  const tgtIdx = items.indexOf(target);
+
+  if (srcIdx < tgtIdx) {
+    list.insertBefore(dragSrc, target.nextSibling);
+  } else {
+    list.insertBefore(dragSrc, target);
+  }
+
+  target.classList.remove('drag-over');
+  renumberItems();
+});
+
+function renumberItems() {
+  list.querySelectorAll('.esc-item').forEach((el, i) => {
+    el.dataset.order = i;
+    const numEl = el.querySelector('.order-num');
+    if (numEl) numEl.textContent = '#' + (i + 1);
+  });
+}
+
+// ─── Save Order ───────────────────────────────────────────────────────────────
+async function saveOrder() {
+  const items = [...list.querySelectorAll('.esc-item')];
+  const order = items.map((el, i) => ({
+    userId: el.dataset.userId,
+    priorityOrder: i,
+    availability: el.querySelector('select').value
+  }));
+
+  try {
+    const r = await fetch('/nexus/escalation/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      body: JSON.stringify({ order })
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    showToast('Escalation order saved', 'success');
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+// ─── Availability auto-save ───────────────────────────────────────────────────
+async function updateAvailability(userId, availability, selectEl) {
+  const avColors = {
+    'on-shift': 'var(--success)',
+    'on-call': 'var(--secondary)',
+    'unavailable': 'var(--text-muted)',
+    'out-of-service': 'var(--danger)'
+  };
+  const borderColors = {
+    'on-shift': '#00d4a0',
+    'on-call': '#00c8e8',
+    'unavailable': '#444',
+    'out-of-service': '#ff3355'
+  };
+
+  selectEl.style.color = avColors[availability] || 'var(--text-muted)';
+  const card = selectEl.closest('.esc-item');
+  if (card) card.style.borderColor = borderColors[availability] || '#444';
+
+  try {
+    const r = await fetch('/nexus/escalation/availability', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+      body: JSON.stringify({ userId, availability })
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    showToast('Availability updated', 'success');
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+function showToast(msg, type = 'success') {
+  const existing = document.getElementById('nexus-toast');
+  if (existing) existing.remove();
+  const t = document.createElement('div');
+  t.id = 'nexus-toast';
+  t.style.cssText = `position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;padding:0.75rem 1.25rem;border-radius:8px;font-size:0.875rem;font-weight:600;max-width:300px;box-shadow:0 4px 20px rgba(0,0,0,0.4);transition:opacity 0.3s;`;
+  const bgMap = { success: 'var(--success)', error: 'var(--danger)', warning: 'var(--warning)' };
+  t.style.background = bgMap[type] || bgMap.success;
+  t.style.color = type === 'error' ? '#fff' : '#000';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 2500);
+}
+</script>
+<script src="/public/js/app.js"></script>
+</body>
+</html>
