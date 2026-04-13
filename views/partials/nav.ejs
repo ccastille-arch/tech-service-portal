@@ -20,8 +20,17 @@
       <span class="nav-icon">🔔</span> Notifications
       <% if (unreadCount > 0) { %><span class="nav-badge"><%= unreadCount %></span><% } %>
     </a>
+    <a href="/whats-new" class="nav-link <%= locals.title && title.includes("What") ? 'active' : '' %>">
+      <span class="nav-icon">✨</span> What's New
+    </a>
+    <a href="/feature-requests" class="nav-link <%= locals.title && title.includes('Feature') ? 'active' : '' %>">
+      <span class="nav-icon">💡</span> Feature Requests
+    </a>
     <% if (user && user.role === 'admin') { %>
     <span class="nav-section-label">Admin</span>
+    <a href="/admin" class="nav-link <%= locals.title && title.includes('Admin Panel') ? 'active' : '' %>">
+      <span class="nav-icon">🛡</span> Admin Panel
+    </a>
     <a href="/reports" class="nav-link <%= locals.title && title.includes('Report') ? 'active' : '' %>">
       <span class="nav-icon">📈</span> Reports & Analytics
     </a>

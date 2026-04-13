@@ -200,13 +200,88 @@ function initializeDatabase() {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS page_views (
+      id TEXT PRIMARY KEY,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      username TEXT,
+      path TEXT NOT NULL,
+      method TEXT NOT NULL DEFAULT 'GET',
+      feature TEXT,
+      status_code INTEGER,
+      duration_ms INTEGER,
+      ip TEXT,
+      user_agent TEXT,
+      referrer TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_page_views_user ON page_views(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_page_views_path ON page_views(path, created_at);
+    CREATE INDEX IF NOT EXISTS idx_page_views_created ON page_views(created_at);
+
+    CREATE TABLE IF NOT EXISTS feature_requests (
+      id TEXT PRIMARY KEY,
+      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      author_name TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'submitted' CHECK(status IN ('submitted','under-review','planned','in-progress','completed','declined')),
+      priority TEXT DEFAULT NULL,
+      admin_note TEXT,
+      upvotes INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS feature_request_votes (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES feature_requests(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      UNIQUE(request_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS changelog (
+      id TEXT PRIMARY KEY,
+      version TEXT,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'feature' CHECK(type IN ('feature','improvement','fix','new')),
+      is_published INTEGER NOT NULL DEFAULT 1,
+      created_by TEXT REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status, next_retry_at);
     CREATE INDEX IF NOT EXISTS idx_integration_logs_integration ON integration_logs(integration_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_call_sessions_created ON call_sessions(created_at);
+    CREATE INDEX IF NOT EXISTS idx_feature_requests_status ON feature_requests(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_changelog_created ON changelog(created_at);
   `);
 
   seedUsers(db);
   seedIntegrations(db);
+  seedChangelog(db);
+}
+
+function seedChangelog(db) {
+  const count = db.prepare('SELECT COUNT(*) as c FROM changelog').get().c;
+  if (count > 0) return; // already seeded
+  const now = new Date().toISOString();
+  const entries = [
+    { title: 'Fleet Monitor', description: 'Live SCADA-style monitoring for all field units — Panel, Compressor A, and Compressor B. View real-time sensor readings, alarm highlights, and 24h trend charts for every data point. Click any reading to see sparkline history.', type: 'new' },
+    { title: 'AI-Powered Work Order Assistant', description: 'New work orders now include AI category suggestion and priority recommendation buttons. Describe the issue and let AI pre-fill the category and priority for you.', type: 'feature' },
+    { title: 'Automated Phone Answering', description: 'Incoming tech service calls are now answered by an AI assistant that collects issue details and automatically creates a work order. High-priority calls trigger instant SMS alerts to technicians.', type: 'new' },
+    { title: 'Time Tracking', description: 'Technicians can clock in and out per work order directly from the ticket detail page. Total hours are tracked per ticket and per technician.', type: 'feature' },
+    { title: 'Work Order History Timeline', description: 'Every status change, assignment, and update on a work order is recorded in a timeline so you can see exactly what happened and when.', type: 'improvement' },
+    { title: 'Photo Attachments', description: 'Attach photos directly to work orders from the field. Supports JPEG, PNG, and other image formats.', type: 'feature' },
+    { title: 'Notifications', description: 'Real-time in-app notifications when work orders are assigned to you, comments are added, or status changes.', type: 'feature' },
+    { title: 'SLA Tracking', description: 'Work orders now show SLA status — on track, at risk, or breached — based on priority. P1 = 4 hours, P2 = 24 hours, P3 = 72 hours, P4 = 168 hours.', type: 'improvement' },
+  ];
+  const insert = db.prepare(`INSERT OR IGNORE INTO changelog (id, title, description, type, is_published, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)`);
+  for (const e of entries) {
+    insert.run(uuidv4(), e.title, e.description, e.type, now, now);
+  }
 }
 
 function seedUsers(db) {

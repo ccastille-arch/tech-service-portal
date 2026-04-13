@@ -126,6 +126,10 @@ app.use((req, res, next) => {
   }
 });
 
+// ── Analytics tracking ────────────────────────────────────────────────────────
+const { analyticsMiddleware } = require('./middleware/analytics');
+app.use(analyticsMiddleware);
+
 // Voice webhooks — exempt from CSRF (Twilio posts here without tokens)
 const voiceRoutes = require('./routes/voice');
 app.use('/voice', voiceRoutes);
@@ -145,6 +149,8 @@ const aiRoutes = require('./routes/ai');
 const integrationRoutes = require('./routes/integrations');
 const syncRoutes = require('./routes/sync');
 const fleetRoutes = require('./routes/fleet');
+const adminRoutes = require('./routes/admin');
+const communityRoutes = require('./routes/community');
 
 app.use('/', authRoutes);
 app.use('/', dashboardRoutes);
@@ -157,6 +163,9 @@ app.use('/integrations', integrationRoutes);
 app.use('/sync', syncRoutes);
 app.use('/calls', voiceRoutes);
 app.use('/fleet', fleetRoutes);
+app.use('/admin', adminRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/', communityRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }));

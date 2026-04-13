@@ -29,7 +29,87 @@
         </div>
       </div>
 
-      <!-- SLA Gauge -->
+      <!-- ══ SECTION 1: Header stat row ════════════════════════════════════════ -->
+      <div class="stat-row mb-3" id="stat-row">
+        <div class="stat-card">
+          <div class="stat-label">Total Tickets</div>
+          <div class="stat-value" id="stat-total-tickets">—</div>
+          <div class="stat-sub">this period</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Open Tickets</div>
+          <div class="stat-value" id="stat-open-tickets">—</div>
+          <div class="stat-sub">currently open</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Active Users Today</div>
+          <div class="stat-value" id="stat-active-today">—</div>
+          <div class="stat-sub" id="stat-active-week">— this week</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Calls This Period</div>
+          <div class="stat-value" id="stat-calls">—</div>
+          <div class="stat-sub" id="stat-calls-sub">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">SLA Compliance</div>
+          <div class="stat-value" id="stat-sla-pct">—%</div>
+          <div class="stat-sub" id="stat-sla-sub">met vs total</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Avg Resolution</div>
+          <div class="stat-value" id="stat-avg-res">—</div>
+          <div class="stat-sub">hours</div>
+        </div>
+      </div>
+
+      <!-- ══ SECTION 2: User Activity ══════════════════════════════════════════ -->
+      <div class="card mb-3">
+        <div class="card-header">
+          <div class="card-title">👤 User Activity</div>
+          <div class="card-subtitle" id="user-activity-sub">Who is using the portal and how often</div>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table" id="user-activity-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Username</th>
+                <th>Role</th>
+                <th style="text-align:right;">Page Views</th>
+                <th style="text-align:right;">Active Days</th>
+                <th>Last Seen</th>
+                <th>Features Used</th>
+              </tr>
+            </thead>
+            <tbody id="user-activity-body">
+              <tr><td colspan="7" style="text-align:center;color:var(--text-muted);">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ══ SECTION 3: Feature Usage + Section 4: Daily Traffic ══════════════ -->
+      <div class="charts-grid mb-3" style="grid-template-columns:1fr 1fr;">
+        <div class="chart-card">
+          <div class="chart-title">Feature Usage (Views per Feature)</div>
+          <canvas id="chart-feature-usage" style="max-height:260px;"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Daily Traffic — Page Views &amp; Unique Users</div>
+          <canvas id="chart-daily-traffic" style="max-height:260px;"></canvas>
+        </div>
+      </div>
+
+      <!-- ══ SECTION 5: Hourly Heatmap ════════════════════════════════════════ -->
+      <div class="chart-card mb-3" style="grid-column:1/-1;">
+        <div class="chart-title">Hourly Traffic Heatmap (Hour of Day)</div>
+        <canvas id="chart-hourly" style="max-height:180px;"></canvas>
+      </div>
+
+      <!-- ══ SECTION 6: Work Order Charts ══════════════════════════════════════ -->
+      <div class="section-label mb-2" style="color:var(--text-muted);font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;">Work Orders</div>
+
       <div class="d-flex gap-2 mb-3 flex-wrap">
         <div class="chart-card" style="flex:0 0 200px;text-align:center;">
           <div class="chart-title">SLA Compliance</div>
@@ -45,7 +125,7 @@
         </div>
       </div>
 
-      <div class="charts-grid">
+      <div class="charts-grid mb-3">
         <div class="chart-card" style="grid-column:1/-1;">
           <div class="chart-title">Open vs Closed Over Time</div>
           <canvas id="chart-daily" style="max-height:200px;"></canvas>
@@ -71,14 +151,506 @@
           <canvas id="chart-hours"></canvas>
         </div>
       </div>
-    </div>
-  </div>
-</div>
+
+      <!-- ══ SECTION 7: Call Analytics ════════════════════════════════════════ -->
+      <div class="section-label mb-2" style="color:var(--text-muted);font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;">Call Analytics</div>
+      <div class="stat-row mb-3" id="call-stat-row">
+        <div class="stat-card">
+          <div class="stat-label">Total Calls</div>
+          <div class="stat-value" id="call-total">—</div>
+          <div class="stat-sub">this period</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Completed</div>
+          <div class="stat-value" id="call-completed">—</div>
+          <div class="stat-sub">answered</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Voicemails</div>
+          <div class="stat-value" id="call-voicemails">—</div>
+          <div class="stat-sub">left message</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Tickets Created</div>
+          <div class="stat-value" id="call-tickets">—</div>
+          <div class="stat-sub">from calls</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Avg Duration</div>
+          <div class="stat-value" id="call-avg-dur">—</div>
+          <div class="stat-sub">seconds</div>
+        </div>
+      </div>
+
+      <!-- ══ SECTION 8: Top Pages ══════════════════════════════════════════════ -->
+      <div class="card mb-3">
+        <div class="card-header">
+          <div class="card-title">🔗 Top Pages</div>
+          <div class="card-subtitle">Most visited paths this period</div>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table" id="top-paths-table">
+            <thead>
+              <tr>
+                <th>Path</th>
+                <th style="text-align:right;">Hits</th>
+                <th style="text-align:right;">Unique Users</th>
+                <th style="text-align:right;">Avg Response (ms)</th>
+              </tr>
+            </thead>
+            <tbody id="top-paths-body">
+              <tr><td colspan="4" style="text-align:center;color:var(--text-muted);">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /page-content -->
+  </div><!-- /main-content -->
+</div><!-- /app-layout -->
+
+<style>
+.stat-row {
+  display: flex;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+.stat-card {
+  flex: 1;
+  min-width: 130px;
+  background: var(--bg-mid, #0d1f35);
+  border: 1px solid rgba(0,200,232,.12);
+  border-radius: 8px;
+  padding: .9rem 1rem;
+}
+.stat-label {
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted, #4a6080);
+  margin-bottom: .3rem;
+}
+.stat-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--secondary, #00c8e8);
+  line-height: 1;
+}
+.stat-sub {
+  font-size: .72rem;
+  color: var(--text-muted, #4a6080);
+  margin-top: .25rem;
+}
+.section-label {
+  padding-left: .25rem;
+}
+.feature-pill {
+  display: inline-block;
+  background: rgba(0,200,232,.12);
+  color: var(--secondary, #00c8e8);
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: .7rem;
+  margin: 1px 2px;
+}
+</style>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 const csrfToken = '<%= csrfToken %>';
 </script>
 <script src="/public/js/app.js"></script>
-<script src="/public/js/reports.js"></script>
+<script>
+'use strict';
+
+// ── Chart defaults ─────────────────────────────────────────────────────────
+Chart.defaults.color = '#c8d8e8';
+Chart.defaults.borderColor = 'rgba(0,200,232,.1)';
+Chart.defaults.font.family = 'Rajdhani, sans-serif';
+Chart.defaults.font.size = 13;
+
+const COLORS = {
+  primary:   '#ff6b00',
+  secondary: '#00c8e8',
+  success:   '#00d4a0',
+  danger:    '#ff3355',
+  warning:   '#ffd60a',
+  muted:     '#4a6080',
+  P1: '#ff3355', P2: '#ffd60a', P3: '#00c8e8', P4: '#4a6080'
+};
+
+const BG_MID = '#0d1f35';
+let charts = {};
+
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+}
+function fmtDateTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
+         d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+}
+
+async function loadCharts() {
+  const range = document.getElementById('range-select')?.value || 30;
+  const res = await fetch(`/api/reports/data?range=${range}`);
+  const data = await res.json();
+
+  // ── Section 1: Header stats ──────────────────────────────────────────────
+  setText('stat-total-tickets', data.totalTickets ?? '—');
+  setText('stat-open-tickets', data.openTickets ?? '—');
+  setText('stat-active-today', data.activeUsers?.today ?? '—');
+  setText('stat-active-week', (data.activeUsers?.week ?? '—') + ' this week');
+  setText('stat-calls', data.callStats?.total ?? '—');
+  const callsCompleted = data.callStats?.completed ?? 0;
+  const callsVm        = data.callStats?.voicemails ?? 0;
+  setText('stat-calls-sub', callsCompleted + ' completed · ' + callsVm + ' vm');
+
+  const slaTotal = (data.sla?.met ?? 0) + (data.sla?.missed ?? 0) + (data.sla?.breached ?? 0);
+  const slaPct   = slaTotal > 0 ? Math.round((data.sla.met / slaTotal) * 100) : 100;
+  setText('stat-sla-pct', slaPct + '%');
+  setText('stat-sla-sub', (data.sla?.met ?? 0) + ' met · ' + (data.sla?.missed ?? 0) + ' missed');
+  setText('stat-avg-res', data.avgResolutionHours ?? '—');
+
+  // ── Section 2: User Activity table ──────────────────────────────────────
+  const uaBody = document.getElementById('user-activity-body');
+  if (uaBody) {
+    const rows = (data.userActivity || []);
+    if (rows.length === 0) {
+      uaBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">No activity data yet</td></tr>';
+    } else {
+      uaBody.innerHTML = rows.map(u => {
+        const features = (u.features_used || '').split(',').filter(Boolean);
+        const pills = features.map(f => `<span class="feature-pill">${escHtml(f)}</span>`).join('');
+        const roleClass = u.role === 'admin' ? 'color:var(--primary)' : 'color:var(--text-muted)';
+        return `<tr>
+          <td>${escHtml(u.name || '—')}</td>
+          <td style="color:var(--text-muted);">${escHtml(u.username || '—')}</td>
+          <td><span style="${roleClass};font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;">${escHtml(u.role || '—')}</span></td>
+          <td style="text-align:right;">${u.total_views ?? 0}</td>
+          <td style="text-align:right;">${u.active_days ?? 0}</td>
+          <td style="color:var(--text-muted);font-size:.85rem;">${fmtDateTime(u.last_seen)}</td>
+          <td>${pills || '<span style="color:var(--text-muted);font-size:.8rem;">none</span>'}</td>
+        </tr>`;
+      }).join('');
+    }
+  }
+
+  // ── Section 3: Feature Usage bar chart ──────────────────────────────────
+  destroyChart('featureUsage');
+  const ctxFeat = document.getElementById('chart-feature-usage');
+  if (ctxFeat) {
+    const fu = data.featureUsage || [];
+    charts.featureUsage = new Chart(ctxFeat, {
+      type: 'bar',
+      data: {
+        labels: fu.map(d => d.feature),
+        datasets: [
+          {
+            label: 'Views',
+            data: fu.map(d => d.views),
+            backgroundColor: COLORS.primary,
+            borderRadius: 4
+          },
+          {
+            label: 'Unique Users',
+            data: fu.map(d => d.unique_users),
+            backgroundColor: COLORS.secondary,
+            borderRadius: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        indexAxis: 'y',
+        plugins: { legend: { position: 'top' } },
+        scales: { x: { beginAtZero: true } }
+      }
+    });
+  }
+
+  // ── Section 4: Daily Traffic line chart ─────────────────────────────────
+  destroyChart('dailyTraffic');
+  const ctxDT = document.getElementById('chart-daily-traffic');
+  if (ctxDT) {
+    const dt = data.dailyTraffic || [];
+    charts.dailyTraffic = new Chart(ctxDT, {
+      type: 'line',
+      data: {
+        labels: dt.map(d => d.date),
+        datasets: [
+          {
+            label: 'Page Views',
+            data: dt.map(d => d.hits),
+            borderColor: COLORS.secondary,
+            backgroundColor: 'rgba(0,200,232,.08)',
+            tension: .3, fill: true, pointRadius: 2
+          },
+          {
+            label: 'Unique Users',
+            data: dt.map(d => d.unique_users),
+            borderColor: COLORS.success,
+            backgroundColor: 'rgba(0,212,160,.08)',
+            tension: .3, fill: true, pointRadius: 2
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: 'top' } },
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+  }
+
+  // ── Section 5: Hourly heatmap bar chart ─────────────────────────────────
+  destroyChart('hourly');
+  const ctxHourly = document.getElementById('chart-hourly');
+  if (ctxHourly) {
+    // Build full 0-23 array, filling zeros for missing hours
+    const hourMap = {};
+    (data.hourlyTraffic || []).forEach(d => { hourMap[d.hour] = d.hits; });
+    const hours  = Array.from({ length: 24 }, (_, i) => i);
+    const labels = hours.map(h => h.toString().padStart(2, '0') + ':00');
+    const hits   = hours.map(h => hourMap[h] || 0);
+
+    charts.hourly = new Chart(ctxHourly, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Hits',
+          data: hits,
+          backgroundColor: hits.map(v => {
+            const max = Math.max(...hits, 1);
+            const alpha = 0.2 + 0.8 * (v / max);
+            return `rgba(0,200,232,${alpha.toFixed(2)})`;
+          }),
+          borderRadius: 3
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+  }
+
+  // ── Section 6: Work Order charts ────────────────────────────────────────
+
+  // Open vs Closed line
+  destroyChart('daily');
+  const ctxDaily = document.getElementById('chart-daily');
+  if (ctxDaily) {
+    charts.daily = new Chart(ctxDaily, {
+      type: 'line',
+      data: {
+        labels: data.dailyCounts.map(d => d.date),
+        datasets: [
+          {
+            label: 'Open',
+            data: data.dailyCounts.map(d => d.open),
+            borderColor: COLORS.secondary,
+            backgroundColor: 'rgba(0,200,232,.08)',
+            tension: .3, fill: true
+          },
+          {
+            label: 'Closed',
+            data: data.dailyCounts.map(d => d.closed),
+            borderColor: COLORS.success,
+            backgroundColor: 'rgba(0,212,160,.08)',
+            tension: .3, fill: true
+          }
+        ]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'top' } } }
+    });
+  }
+
+  // By Priority bar
+  destroyChart('priority');
+  const ctxPri = document.getElementById('chart-priority');
+  if (ctxPri) {
+    charts.priority = new Chart(ctxPri, {
+      type: 'bar',
+      data: {
+        labels: data.byPriority.map(d => d.priority),
+        datasets: [{
+          data: data.byPriority.map(d => d.cnt),
+          backgroundColor: data.byPriority.map(d => COLORS[d.priority] || COLORS.muted),
+          borderRadius: 4
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } }, indexAxis: 'x' }
+    });
+  }
+
+  // Tickets per tech donut
+  destroyChart('tech');
+  const ctxTech = document.getElementById('chart-tech');
+  if (ctxTech) {
+    charts.tech = new Chart(ctxTech, {
+      type: 'doughnut',
+      data: {
+        labels: data.ticketsPerTech.map(d => d.name),
+        datasets: [{
+          data: data.ticketsPerTech.map(d => d.cnt),
+          backgroundColor: [COLORS.primary, COLORS.secondary, COLORS.success, COLORS.warning],
+          borderWidth: 2,
+          borderColor: BG_MID
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    });
+  }
+
+  // Avg resolution time by category
+  destroyChart('resolution');
+  const ctxRes = document.getElementById('chart-resolution');
+  if (ctxRes) {
+    charts.resolution = new Chart(ctxRes, {
+      type: 'bar',
+      data: {
+        labels: data.resolutionByCategory.map(d => d.category),
+        datasets: [{
+          label: 'Avg Hours',
+          data: data.resolutionByCategory.map(d => parseFloat(d.avg_hours || 0).toFixed(1)),
+          backgroundColor: COLORS.primary,
+          borderRadius: 4
+        }]
+      },
+      options: { responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }
+    });
+  }
+
+  // SLA Donut
+  destroyChart('sla');
+  const ctxSla = document.getElementById('chart-sla');
+  if (ctxSla) {
+    document.getElementById('sla-pct').textContent = slaPct + '%';
+    document.getElementById('sla-detail').textContent =
+      `${data.sla.met} met · ${data.sla.missed} missed · ${data.sla.breached} active breach`;
+    charts.sla = new Chart(ctxSla, {
+      type: 'doughnut',
+      data: {
+        labels: ['Met', 'Missed', 'Active Breach'],
+        datasets: [{
+          data: [data.sla.met, data.sla.missed, data.sla.breached],
+          backgroundColor: [COLORS.success, COLORS.warning, COLORS.danger],
+          borderWidth: 2, borderColor: BG_MID
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    });
+  }
+
+  // Busiest sites
+  destroyChart('sites');
+  const ctxSites = document.getElementById('chart-sites');
+  if (ctxSites) {
+    charts.sites = new Chart(ctxSites, {
+      type: 'bar',
+      data: {
+        labels: data.busiestSites.map(d => d.site),
+        datasets: [{
+          data: data.busiestSites.map(d => d.cnt),
+          backgroundColor: COLORS.secondary,
+          borderRadius: 4
+        }]
+      },
+      options: { responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }
+    });
+  }
+
+  // Hours per tech
+  destroyChart('hours');
+  const ctxHours = document.getElementById('chart-hours');
+  if (ctxHours) {
+    charts.hours = new Chart(ctxHours, {
+      type: 'bar',
+      data: {
+        labels: data.hoursPerTech.map(d => d.name),
+        datasets: [{
+          label: 'Hours',
+          data: data.hoursPerTech.map(d => parseFloat(d.hours || 0).toFixed(2)),
+          backgroundColor: COLORS.warning,
+          borderRadius: 4
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } } }
+    });
+  }
+
+  // ── Section 7: Call stat cards ───────────────────────────────────────────
+  const cs = data.callStats || {};
+  setText('call-total',     cs.total      ?? '—');
+  setText('call-completed', cs.completed  ?? '—');
+  setText('call-voicemails',cs.voicemails ?? '—');
+  setText('call-tickets',   cs.tickets_created ?? '—');
+  setText('call-avg-dur',   cs.avg_duration != null ? Math.round(cs.avg_duration) + 's' : '—');
+
+  // ── Section 8: Top Paths table ───────────────────────────────────────────
+  const tpBody = document.getElementById('top-paths-body');
+  if (tpBody) {
+    const paths = data.topPaths || [];
+    if (paths.length === 0) {
+      tpBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">No path data yet</td></tr>';
+    } else {
+      tpBody.innerHTML = paths.map(p => `
+        <tr>
+          <td style="font-family:monospace;font-size:.85rem;">${escHtml(p.path)}</td>
+          <td style="text-align:right;">${p.hits}</td>
+          <td style="text-align:right;">${p.unique_users}</td>
+          <td style="text-align:right;color:${p.avg_ms > 500 ? 'var(--danger)' : p.avg_ms > 200 ? 'var(--warning)' : 'var(--success)'};">${p.avg_ms != null ? p.avg_ms + ' ms' : '—'}</td>
+        </tr>
+      `).join('');
+    }
+  }
+}
+
+// Helpers
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+function escHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// AI report button
+const btnAiReport = document.getElementById('btn-ai-report');
+if (btnAiReport) {
+  btnAiReport.addEventListener('click', async () => {
+    const container = document.getElementById('ai-report-container');
+    const content   = document.getElementById('ai-report-content');
+    container.classList.remove('hidden');
+    content.textContent = 'Generating AI summary…';
+    btnAiReport.disabled = true;
+    try {
+      const r = await fetch('/api/ai/summary-report', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': window.csrfToken || '' }
+      });
+      const d = await r.json();
+      content.textContent = d.narrative || d.error || 'Unable to generate summary.';
+    } catch(e) {
+      content.textContent = 'Error: ' + e.message;
+    }
+    btnAiReport.disabled = false;
+  });
+}
+
+// Load on page init
+loadCharts();
+</script>
 </body>
 </html>

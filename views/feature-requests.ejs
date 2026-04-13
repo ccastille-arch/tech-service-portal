@@ -1,0 +1,175 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title">Feature Requests</span>
+      <div class="top-bar-actions">
+        <a href="?sort=votes" class="btn btn-ghost btn-sm <%= sort==='votes' ? '' : 'btn-outline' %>" style="<%= sort==='votes' ? 'border-color:var(--secondary);color:var(--secondary)' : '' %>">🔥 Top</a>
+        <a href="?sort=new"   class="btn btn-ghost btn-sm" style="<%= sort==='new'   ? 'border-color:var(--secondary);color:var(--secondary)' : '' %>">🕐 New</a>
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('new-modal').classList.add('open')">+ Submit Idea</button>
+      </div>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+
+      <div style="max-width:760px;margin:0 auto;">
+
+        <% if (requests.length === 0) { %>
+        <div class="empty-state">
+          <span class="empty-icon">💡</span>
+          <h3>No requests yet</h3>
+          <p>Be the first to suggest a feature!</p>
+          <button class="btn btn-primary" onclick="document.getElementById('new-modal').classList.add('open')">Submit an Idea</button>
+        </div>
+        <% } %>
+
+        <%
+          const statusConfig = {
+            'submitted':    { label: 'Submitted',    cls: 'sp-submitted' },
+            'under-review': { label: 'Under Review', cls: 'sp-under-review' },
+            'planned':      { label: 'Planned',      cls: 'sp-planned' },
+            'in-progress':  { label: 'In Progress',  cls: 'sp-in-progress' },
+            'completed':    { label: 'Completed',    cls: 'sp-completed' },
+            'declined':     { label: 'Declined',     cls: 'sp-declined' },
+          };
+        %>
+
+        <style>
+          .status-pill { display:inline-block;padding:.15rem .55rem;border-radius:12px;font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em; }
+          .sp-submitted    { background:rgba(0,200,232,.12);color:var(--secondary); }
+          .sp-under-review { background:rgba(255,214,10,.12);color:var(--warning); }
+          .sp-planned      { background:rgba(0,212,160,.12);color:var(--success); }
+          .sp-in-progress  { background:rgba(255,107,0,.12);color:var(--primary); }
+          .sp-completed    { background:rgba(0,212,160,.2);color:var(--success); }
+          .sp-declined     { background:rgba(255,51,85,.12);color:var(--danger); }
+          .vote-btn { display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:48px;padding:.5rem .4rem;border-radius:8px;border:1px solid var(--border);background:var(--bg-mid);cursor:pointer;transition:border-color .15s,background .15s;gap:.1rem; }
+          .vote-btn:hover { border-color:var(--primary);background:rgba(255,107,0,.08); }
+          .vote-btn.voted { border-color:var(--primary);background:rgba(255,107,0,.12);color:var(--primary); }
+          .vote-btn .vote-count { font-size:.95rem;font-weight:700;font-family:var(--font-display);line-height:1; }
+          .vote-btn .vote-label { font-size:.55rem;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted); }
+          .modal-overlay { display:none;position:fixed;inset:0;background:rgba(3,8,18,.85);z-index:1000;align-items:center;justify-content:center; }
+          .modal-overlay.open { display:flex; }
+        </style>
+
+        <div style="display:flex;flex-direction:column;gap:.85rem;">
+          <% for (const r of requests) { %>
+          <% const sc = statusConfig[r.status] || statusConfig.submitted; %>
+          <div class="card" style="<%= r.status==='completed' ? 'opacity:.7' : '' %>">
+            <div style="display:flex;gap:1rem;padding:1rem;">
+
+              <!-- Vote button -->
+              <button class="vote-btn <%= r.user_voted ? 'voted' : '' %>"
+                      id="vote-btn-<%= r.id %>"
+                      onclick="vote('<%= r.id %>')">
+                <span style="font-size:1rem;"><%= r.user_voted ? '▲' : '△' %></span>
+                <span class="vote-count" id="vote-count-<%= r.id %>"><%= r.upvotes %></span>
+                <span class="vote-label">votes</span>
+              </button>
+
+              <!-- Content -->
+              <div style="flex:1;min-width:0;">
+                <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.35rem;">
+                  <span class="status-pill <%= sc.cls %>"><%= sc.label %></span>
+                  <% if (r.priority) { %><span class="badge badge-<%= r.priority.toLowerCase() %>"><%= r.priority %></span><% } %>
+                  <span style="font-size:.72rem;color:var(--text-muted);margin-left:auto;"><%= new Date(r.created_at).toLocaleDateString() %></span>
+                </div>
+                <div style="font-weight:700;font-size:.95rem;color:var(--text-bright);margin-bottom:.3rem;"><%= r.title %></div>
+                <div style="font-size:.82rem;color:var(--text-muted);line-height:1.6;"><%= r.description %></div>
+                <% if (r.admin_note) { %>
+                <div style="margin-top:.6rem;padding:.5rem .75rem;background:rgba(0,200,232,.06);border-left:2px solid var(--secondary);border-radius:0 4px 4px 0;font-size:.78rem;color:var(--secondary);">
+                  <strong>Admin:</strong> <%= r.admin_note %>
+                </div>
+                <% } %>
+                <div style="margin-top:.5rem;font-size:.7rem;color:var(--text-muted);">Submitted by <%= r.author_name %></div>
+
+                <!-- Admin controls -->
+                <% if (user && user.role === 'admin') { %>
+                <div style="margin-top:.75rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;" id="admin-ctrl-<%= r.id %>">
+                  <select onchange="updateStatus('<%= r.id %>',this)" style="background:var(--bg-mid);border:1px solid var(--border);color:var(--text);padding:.25rem .5rem;border-radius:4px;font-size:.75rem;">
+                    <% for (const [val,cfg] of Object.entries(statusConfig)) { %>
+                    <option value="<%= val %>" <%= r.status===val ? 'selected' : '' %>><%= cfg.label %></option>
+                    <% } %>
+                  </select>
+                  <input id="note-<%= r.id %>" placeholder="Admin note..." value="<%= r.admin_note||'' %>"
+                    style="background:var(--bg-mid);border:1px solid var(--border);color:var(--text);padding:.25rem .5rem;border-radius:4px;font-size:.75rem;flex:1;min-width:120px;">
+                  <form method="POST" action="/feature-requests/<%= r.id %>/delete" onsubmit="return confirm('Delete this request?')" style="display:inline;">
+                    <input type="hidden" name="_csrf" value="<%= locals.csrfToken %>">
+                    <button class="btn btn-sm" style="font-size:.7rem;background:rgba(255,51,85,.08);border-color:rgba(255,51,85,.25);color:var(--danger);">Delete</button>
+                  </form>
+                </div>
+                <% } %>
+              </div>
+            </div>
+          </div>
+          <% } %>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Submit modal -->
+<div class="modal-overlay" id="new-modal">
+  <div class="card" style="width:min(520px,92vw);">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="card-title">💡 Submit a Feature Request</div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('new-modal').classList.remove('open')">✕</button>
+    </div>
+    <form method="POST" action="/feature-requests" style="padding:1rem;display:flex;flex-direction:column;gap:.75rem;">
+      <input type="hidden" name="_csrf" value="<%= locals.csrfToken %>">
+      <div class="form-group">
+        <label class="form-label">Title <span style="color:var(--danger)">*</span></label>
+        <input class="form-control" name="title" required placeholder="e.g. Export work orders to PDF" maxlength="120">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description <span style="color:var(--danger)">*</span></label>
+        <textarea class="form-control" name="description" required rows="4" placeholder="Describe the feature and why it would be helpful..."></textarea>
+      </div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;">
+        <button type="button" class="btn btn-ghost" onclick="document.getElementById('new-modal').classList.remove('open')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Submit Request</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/public/js/app.js"></script>
+<script>
+const csrf = '<%= locals.csrfToken %>';
+
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+});
+
+async function vote(id) {
+  const btn = document.getElementById('vote-btn-' + id);
+  const countEl = document.getElementById('vote-count-' + id);
+  const res = await fetch('/feature-requests/' + id + '/vote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+    body: '{}'
+  });
+  const data = await res.json();
+  if (data.ok) {
+    countEl.textContent = data.votes;
+    btn.classList.toggle('voted', data.voted);
+    btn.querySelector('span:first-child').textContent = data.voted ? '▲' : '△';
+  }
+}
+
+async function updateStatus(id, selectEl) {
+  const status    = selectEl.value;
+  const adminNote = document.getElementById('note-' + id)?.value || '';
+  await fetch('/feature-requests/' + id + '/status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+    body: JSON.stringify({ status, admin_note: adminNote })
+  });
+}
+</script>
+</body>
+</html>

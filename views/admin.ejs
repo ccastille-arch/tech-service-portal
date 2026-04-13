@@ -1,0 +1,333 @@
+<%- include('partials/head', { title: title }) %>
+<body>
+<div class="app-layout">
+  <%- include('partials/nav') %>
+  <div class="main-content">
+    <div class="top-bar">
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+      <span class="top-bar-title">Admin Panel</span>
+    </div>
+    <div class="page-content">
+      <%- include('partials/flash') %>
+
+      <!-- Tab Bar -->
+      <div style="display:flex;gap:.5rem;margin-bottom:1.25rem;border-bottom:1px solid var(--border);padding-bottom:.5rem;overflow-x:auto;">
+        <button onclick="switchTab('users')"    id="tab-btn-users"    class="tab-btn-admin <%= tab==='users'    ? 'active-tab' : '' %>">👥 Users</button>
+        <button onclick="switchTab('activity')" id="tab-btn-activity" class="tab-btn-admin <%= tab==='activity' ? 'active-tab' : '' %>">📡 Live Activity</button>
+        <button onclick="switchTab('requests')" id="tab-btn-requests" class="tab-btn-admin <%= tab==='requests' ? 'active-tab' : '' %>">💡 Feature Requests</button>
+        <button onclick="switchTab('changelog')" id="tab-btn-changelog" class="tab-btn-admin <%= tab==='changelog' ? 'active-tab' : '' %>">✨ Changelog</button>
+      </div>
+
+      <style>
+        .tab-btn-admin { background:var(--bg-mid);border:1px solid var(--border);color:var(--text-muted);padding:.4rem 1rem;border-radius:6px;cursor:pointer;font-family:var(--font);font-size:.8rem;letter-spacing:.05em;white-space:nowrap; }
+        .tab-btn-admin.active-tab { border-color:var(--primary);color:var(--primary);background:rgba(255,107,0,.08); }
+        .admin-tab { display:none; }
+        .admin-tab.active { display:block; }
+        .user-row { display:grid;grid-template-columns:1fr 1fr auto auto auto;gap:.75rem;align-items:center;padding:.6rem .75rem;border-bottom:1px solid var(--border);font-size:.82rem; }
+        .user-row:hover { background:var(--bg-mid); }
+        .badge-admin { background:rgba(255,107,0,.15);color:var(--primary);border:1px solid rgba(255,107,0,.3);padding:.1rem .5rem;border-radius:3px;font-size:.65rem;text-transform:uppercase;letter-spacing:.08em; }
+        .badge-tech  { background:rgba(0,200,232,.1);color:var(--secondary);border:1px solid rgba(0,200,232,.2);padding:.1rem .5rem;border-radius:3px;font-size:.65rem;text-transform:uppercase;letter-spacing:.08em; }
+        .modal-overlay { display:none;position:fixed;inset:0;background:rgba(3,8,18,.85);z-index:1000;align-items:center;justify-content:center; }
+        .modal-overlay.open { display:flex; }
+        .status-pill { display:inline-block;padding:.15rem .55rem;border-radius:12px;font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em; }
+        .sp-submitted    { background:rgba(0,200,232,.12);color:var(--secondary); }
+        .sp-under-review { background:rgba(255,214,10,.12);color:var(--warning); }
+        .sp-planned      { background:rgba(0,212,160,.12);color:var(--success); }
+        .sp-in-progress  { background:rgba(255,107,0,.12);color:var(--primary); }
+        .sp-completed    { background:rgba(0,212,160,.2);color:var(--success); }
+        .sp-declined     { background:rgba(255,51,85,.12);color:var(--danger); }
+      </style>
+
+      <!-- ── USERS TAB ────────────────────────────────────────────────────── -->
+      <div class="admin-tab <%= tab==='users' ? 'active' : '' %>" id="panel-users">
+        <div class="card mb-3">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="card-title">User Accounts (<%= users.length %>)</div>
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('create-modal').classList.add('open')">+ New User</button>
+          </div>
+
+          <!-- Stats row -->
+          <div style="display:flex;gap:1rem;padding:.75rem 1rem;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+            <div style="font-size:.8rem;color:var(--text-muted);">Total tickets: <strong style="color:var(--text-bright)"><%= ticketStats.total %></strong></div>
+            <div style="font-size:.8rem;color:var(--text-muted);">Open: <strong style="color:var(--secondary)"><%= ticketStats.open %></strong></div>
+            <div style="font-size:.8rem;color:var(--text-muted);">In Progress: <strong style="color:var(--primary)"><%= ticketStats.in_progress %></strong></div>
+            <div style="font-size:.8rem;color:var(--text-muted);">Closed: <strong style="color:var(--success)"><%= ticketStats.closed %></strong></div>
+          </div>
+
+          <!-- Header -->
+          <div class="user-row" style="font-size:.7rem;color:var(--text-muted);letter-spacing:.07em;text-transform:uppercase;background:var(--bg-mid);">
+            <div>Name / Username</div><div>Email</div><div>Role</div><div>Created</div><div>Actions</div>
+          </div>
+
+          <% for (const u of users) { %>
+          <div class="user-row">
+            <div>
+              <div style="font-weight:600;color:var(--text-bright);"><%= u.name %></div>
+              <div style="font-size:.72rem;color:var(--text-muted);font-family:monospace;">@<%= u.username %></div>
+            </div>
+            <div style="color:var(--text-muted);font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><%= u.email %></div>
+            <div><span class="badge-<%= u.role %>"><%= u.role %></span></div>
+            <div style="font-size:.72rem;color:var(--text-muted)"><%= new Date(u.created_at).toLocaleDateString() %></div>
+            <div style="display:flex;gap:.35rem;">
+              <button class="btn btn-ghost btn-sm" style="font-size:.7rem;padding:.2rem .5rem;"
+                onclick="openEdit('<%= u.id %>','<%= u.name %>','<%= u.email %>','<%= u.role %>')">Edit</button>
+              <button class="btn btn-ghost btn-sm" style="font-size:.7rem;padding:.2rem .5rem;"
+                onclick="openReset('<%= u.id %>','<%= u.name %>')">Reset PW</button>
+              <% if (u.username !== 'cody') { %>
+              <form method="POST" action="/admin/users/<%= u.id %>/delete" onsubmit="return confirm('Delete <%= u.name %>?')" style="display:inline;">
+                <input type="hidden" name="_csrf" value="<%= locals.csrfToken %>">
+                <button class="btn btn-sm" style="font-size:.7rem;padding:.2rem .5rem;background:rgba(255,51,85,.1);border-color:rgba(255,51,85,.3);color:var(--danger);">Del</button>
+              </form>
+              <% } %>
+            </div>
+          </div>
+          <% } %>
+        </div>
+      </div>
+
+      <!-- ── ACTIVITY TAB ─────────────────────────────────────────────────── -->
+      <div class="admin-tab <%= tab==='activity' ? 'active' : '' %>" id="panel-activity">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Recent User Activity (last 50 actions)</div>
+          </div>
+          <% if (recentActivity.length === 0) { %>
+          <div class="empty-state"><span class="empty-icon">📡</span><h3>No activity yet</h3><p>Activity will appear here as users navigate the portal.</p></div>
+          <% } else { %>
+          <div class="table-container">
+            <table class="table">
+              <thead><tr><th>Time</th><th>User</th><th>Feature</th><th>Path</th><th>Status</th></tr></thead>
+              <tbody>
+                <% for (const a of recentActivity) { %>
+                <tr>
+                  <td style="font-size:.75rem;color:var(--text-muted);white-space:nowrap;"><%= new Date(a.created_at).toLocaleString() %></td>
+                  <td style="font-size:.8rem;font-weight:600;color:var(--secondary)"><%= a.username || '—' %></td>
+                  <td style="font-size:.8rem;"><%= a.feature || '—' %></td>
+                  <td style="font-size:.72rem;color:var(--text-muted);font-family:monospace;"><%= a.path %></td>
+                  <td><span style="font-size:.7rem;color:<%= a.status_code < 400 ? 'var(--success)' : 'var(--danger)' %>"><%= a.status_code %></span></td>
+                </tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+          <% } %>
+        </div>
+      </div>
+
+      <!-- ── FEATURE REQUESTS TAB ─────────────────────────────────────────── -->
+      <div class="admin-tab <%= tab==='requests' ? 'active' : '' %>" id="panel-requests">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Feature Requests — Admin View</div></div>
+          <%
+            const allRequests = (() => { try { return require('../src/database') } catch(e){return null} })();
+          %>
+          <div style="padding:.75rem 1rem;font-size:.82rem;color:var(--text-muted);">
+            Manage feature requests from <a href="/feature-requests" style="color:var(--secondary)">the Feature Requests page</a>. Use the status dropdown on each card to update status and add admin notes.
+          </div>
+        </div>
+      </div>
+
+      <!-- ── CHANGELOG TAB ────────────────────────────────────────────────── -->
+      <div class="admin-tab <%= tab==='changelog' ? 'active' : '' %>" id="panel-changelog">
+        <div class="card">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="card-title">What's New — Manage Entries</div>
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('changelog-modal').classList.add('open')">+ New Entry</button>
+          </div>
+          <div style="padding:.5rem 0;">
+            <!-- Will be loaded via fetch -->
+            <div id="changelog-list" style="padding:0 1rem;">Loading...</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /page-content -->
+  </div>
+</div>
+
+<!-- ── Create User Modal ──────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="create-modal">
+  <div class="card" style="width:min(480px,92vw);">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="card-title">Create New User</div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('create-modal').classList.remove('open')">✕</button>
+    </div>
+    <form method="POST" action="/admin/users/create" style="padding:1rem;display:flex;flex-direction:column;gap:.75rem;">
+      <input type="hidden" name="_csrf" value="<%= locals.csrfToken %>">
+      <div class="form-group"><label class="form-label">Full Name</label><input class="form-control" name="name" required></div>
+      <div class="form-group"><label class="form-label">Username</label><input class="form-control" name="username" required></div>
+      <div class="form-group"><label class="form-label">Email</label><input class="form-control" type="email" name="email" required></div>
+      <div class="form-group"><label class="form-label">Role</label>
+        <select class="form-control" name="role">
+          <option value="tech">Tech</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Password</label><input class="form-control" type="password" name="password" required minlength="6"></div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;">
+        <button type="button" class="btn btn-ghost" onclick="document.getElementById('create-modal').classList.remove('open')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create User</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Edit User Modal ────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="card" style="width:min(480px,92vw);">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="card-title">Edit User</div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('edit-modal').classList.remove('open')">✕</button>
+    </div>
+    <form method="POST" id="edit-form" style="padding:1rem;display:flex;flex-direction:column;gap:.75rem;">
+      <input type="hidden" name="_csrf" value="<%= locals.csrfToken %>">
+      <div class="form-group"><label class="form-label">Full Name</label><input class="form-control" name="name" id="edit-name" required></div>
+      <div class="form-group"><label class="form-label">Email</label><input class="form-control" type="email" name="email" id="edit-email" required></div>
+      <div class="form-group"><label class="form-label">Role</label>
+        <select class="form-control" name="role" id="edit-role">
+          <option value="tech">Tech</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;">
+        <button type="button" class="btn btn-ghost" onclick="document.getElementById('edit-modal').classList.remove('open')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Reset Password Modal ───────────────────────────────────────────────── -->
+<div class="modal-overlay" id="reset-modal">
+  <div class="card" style="width:min(440px,92vw);">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="card-title">Reset Password — <span id="reset-name"></span></div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('reset-modal').classList.remove('open')">✕</button>
+    </div>
+    <form method="POST" id="reset-form" style="padding:1rem;display:flex;flex-direction:column;gap:.75rem;">
+      <input type="hidden" name="_csrf" value="<%= locals.csrfToken %>">
+      <div class="form-group"><label class="form-label">New Password</label><input class="form-control" type="password" name="newPassword" required minlength="6"></div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;">
+        <button type="button" class="btn btn-ghost" onclick="document.getElementById('reset-modal').classList.remove('open')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Reset Password</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── New Changelog Modal ────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="changelog-modal">
+  <div class="card" style="width:min(520px,92vw);">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="card-title">Add Changelog Entry</div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('changelog-modal').classList.remove('open')">✕</button>
+    </div>
+    <div style="padding:1rem;display:flex;flex-direction:column;gap:.75rem;">
+      <div class="form-group"><label class="form-label">Title</label><input class="form-control" id="cl-title" placeholder="e.g. Fleet Monitor"></div>
+      <div class="form-group"><label class="form-label">Description</label><textarea class="form-control" id="cl-desc" rows="3" placeholder="What can users do with this feature?"></textarea></div>
+      <div style="display:flex;gap:.75rem;">
+        <div class="form-group" style="flex:1;"><label class="form-label">Type</label>
+          <select class="form-control" id="cl-type">
+            <option value="new">New Feature</option>
+            <option value="feature">Feature</option>
+            <option value="improvement">Improvement</option>
+            <option value="fix">Bug Fix</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex:1;"><label class="form-label">Version (optional)</label><input class="form-control" id="cl-version" placeholder="e.g. 1.2.0"></div>
+      </div>
+      <div id="cl-error" style="color:var(--danger);font-size:.8rem;display:none;"></div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;">
+        <button class="btn btn-ghost" onclick="document.getElementById('changelog-modal').classList.remove('open')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitChangelog()">Publish Entry</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/public/js/app.js"></script>
+<script>
+function switchTab(name) {
+  document.querySelectorAll('.admin-tab').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn-admin').forEach(b => b.classList.remove('active-tab'));
+  document.getElementById('panel-' + name).classList.add('active');
+  document.getElementById('tab-btn-' + name).classList.add('active-tab');
+  if (name === 'changelog') loadChangelog();
+  history.replaceState(null,'','/admin?tab='+name);
+}
+
+function openEdit(id, name, email, role) {
+  document.getElementById('edit-form').action = '/admin/users/' + id + '/edit';
+  document.getElementById('edit-name').value  = name;
+  document.getElementById('edit-email').value = email;
+  document.getElementById('edit-role').value  = role;
+  document.getElementById('edit-modal').classList.add('open');
+}
+
+function openReset(id, name) {
+  document.getElementById('reset-form').action = '/admin/users/' + id + '/reset-password';
+  document.getElementById('reset-name').textContent = name;
+  document.getElementById('reset-modal').classList.add('open');
+}
+
+// Close modals on backdrop click
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+});
+
+// ── Changelog ──────────────────────────────────────────────────────────────
+async function loadChangelog() {
+  const res  = await fetch('/api/admin/changelog');
+  const data = await res.json();
+  const list = document.getElementById('changelog-list');
+  if (!data.entries || data.entries.length === 0) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:.85rem;padding:1rem 0;">No entries yet.</div>';
+    return;
+  }
+  const typeColors = { new:'var(--success)', feature:'var(--secondary)', improvement:'var(--primary)', fix:'var(--warning)' };
+  list.innerHTML = data.entries.map(e => `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:.75rem 0;border-bottom:1px solid var(--border);gap:1rem;">
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.25rem;">
+          <span style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:${typeColors[e.type]||'var(--secondary)'};">${e.type}</span>
+          ${e.version ? `<span style="font-size:.65rem;color:var(--text-muted);">v${e.version}</span>` : ''}
+        </div>
+        <div style="font-weight:600;color:var(--text-bright);font-size:.9rem;">${e.title}</div>
+        <div style="font-size:.78rem;color:var(--text-muted);margin-top:.2rem;">${e.description}</div>
+        <div style="font-size:.68rem;color:var(--text-muted);margin-top:.25rem;">${new Date(e.created_at).toLocaleDateString()}</div>
+      </div>
+      <form method="POST" action="/admin/changelog/${e.id}/delete" onsubmit="return confirm('Delete this entry?')">
+        <input type="hidden" name="_csrf" value="${document.querySelector('input[name=_csrf]')?.value||''}">
+        <button class="btn btn-sm" style="font-size:.7rem;background:rgba(255,51,85,.08);border-color:rgba(255,51,85,.25);color:var(--danger);">Del</button>
+      </form>
+    </div>
+  `).join('');
+}
+
+async function submitChangelog() {
+  const title = document.getElementById('cl-title').value.trim();
+  const desc  = document.getElementById('cl-desc').value.trim();
+  const type  = document.getElementById('cl-type').value;
+  const ver   = document.getElementById('cl-version').value.trim();
+  const errEl = document.getElementById('cl-error');
+  if (!title || !desc) { errEl.textContent = 'Title and description required.'; errEl.style.display='block'; return; }
+  errEl.style.display = 'none';
+  const csrf = document.querySelector('input[name=_csrf]')?.value || '';
+  const res = await fetch('/admin/changelog', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+    body: JSON.stringify({ title, description: desc, type, version: ver })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    document.getElementById('changelog-modal').classList.remove('open');
+    document.getElementById('cl-title').value = '';
+    document.getElementById('cl-desc').value  = '';
+    loadChangelog();
+  }
+}
+
+if (document.getElementById('panel-changelog').classList.contains('active')) loadChangelog();
+</script>
+</body>
+</html>
