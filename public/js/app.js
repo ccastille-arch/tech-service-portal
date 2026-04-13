@@ -50,6 +50,27 @@ if (flashMsg) {
   }, 5000);
 }
 
+// ===================== LOCAL TIMESTAMPS =====================
+// All timestamps stored and rendered as UTC ISO strings.
+// This runs client-side so they display in the user's local timezone.
+function convertTimestamps() {
+  document.querySelectorAll('[data-ts]').forEach(el => {
+    const raw = el.getAttribute('data-ts');
+    if (!raw) return;
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return;
+    const mode = el.getAttribute('data-ts-fmt') || 'datetime';
+    if (mode === 'date') {
+      el.textContent = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    } else if (mode === 'short') {
+      el.textContent = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    } else {
+      el.textContent = d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+  });
+}
+document.addEventListener('DOMContentLoaded', convertTimestamps);
+
 // ===================== LIVE TIMER =====================
 const liveTimer = document.getElementById('live-timer');
 if (liveTimer) {

@@ -104,8 +104,8 @@
                 <td style="font-size:.85rem;"><%= t.assigned_name || '<span style="color:var(--text-muted)">—</span>' %></td>
                 <td style="font-size:.8rem;color:var(--text-muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><%= t.well_site || t.location || '—' %></td>
                 <td><span class="badge badge-sla-<%= t.slaStatus %>"><%= t.slaStatus %></span></td>
-                <td style="font-size:.8rem;color:var(--text-muted);white-space:nowrap;"><%= t.due_date ? new Date(t.due_date).toLocaleDateString() : '—' %></td>
-                <td style="font-size:.8rem;color:var(--text-muted);white-space:nowrap;"><%= new Date(t.created_at).toLocaleDateString() %></td>
+                <td style="font-size:.8rem;color:var(--text-muted);white-space:nowrap;"><% if(t.due_date){%><span data-ts="<%= t.due_date %>" data-ts-fmt="date"><%= t.due_date.slice(0,10) %></span><%}else{%>—<%}%></td>
+                <td style="font-size:.8rem;color:var(--text-muted);white-space:nowrap;"><span data-ts="<%= t.created_at %>" data-ts-fmt="date"><%= t.created_at.slice(0,10) %></span></td>
               </tr>
               <% } %>
             </tbody>

@@ -72,7 +72,7 @@
               <span class="badge-<%= u.role %>"><%= u.role %></span>
               <% if (isLocked) { %><span style="font-size:.65rem;color:var(--danger);margin-left:.35rem;">🔒 Locked</span><% } %>
             </div>
-            <div style="font-size:.72rem;color:var(--text-muted)"><%= u.last_login_at ? new Date(u.last_login_at).toLocaleString() : 'Never' %></div>
+            <div style="font-size:.72rem;color:var(--text-muted)"><% if (u.last_login_at) { %><span data-ts="<%= u.last_login_at %>"><%= u.last_login_at.slice(0,16).replace('T',' ') %></span><% } else { %>Never<% } %></div>
             <div style="display:flex;gap:.35rem;flex-wrap:wrap;">
               <button class="btn btn-ghost btn-sm" style="font-size:.7rem;padding:.2rem .5rem;"
                 onclick="openEdit('<%= u.id %>','<%= u.name.replace(/'/g, \"\\\\'\" ) %>','<%= u.email %>','<%= u.role %>')">Edit</button>
@@ -116,7 +116,7 @@
                   const rowColor = isSecurityBad ? 'rgba(255,51,85,.06)' : isAdmin ? 'rgba(255,107,0,.04)' : '';
                 %>
                 <tr style="background:<%= rowColor %>">
-                  <td style="font-size:.72rem;color:var(--text-muted);white-space:nowrap;"><%= new Date(a.created_at).toLocaleString() %></td>
+                  <td style="font-size:.72rem;color:var(--text-muted);white-space:nowrap;"><span data-ts="<%= a.created_at %>"><%= a.created_at.slice(0,16).replace('T',' ') %></span></td>
                   <td style="font-size:.8rem;font-weight:600;color:var(--secondary)"><%= a.actor_name || '—' %></td>
                   <td style="font-size:.72rem;font-family:monospace;color:<%= isSecurityBad ? 'var(--danger)' : isAdmin ? 'var(--primary)' : 'var(--text)' %>"><%= a.action %></td>
                   <td style="font-size:.72rem;color:var(--text-muted);"><%= a.resource_type ? `${a.resource_type}` : '—' %></td>
@@ -146,7 +146,7 @@
               <tbody>
                 <% for (const a of recentActivity) { %>
                 <tr>
-                  <td style="font-size:.75rem;color:var(--text-muted);white-space:nowrap;"><%= new Date(a.created_at).toLocaleString() %></td>
+                  <td style="font-size:.75rem;color:var(--text-muted);white-space:nowrap;"><span data-ts="<%= a.created_at %>"><%= a.created_at.slice(0,16).replace('T',' ') %></span></td>
                   <td style="font-size:.8rem;font-weight:600;color:var(--secondary)"><%= a.username || '—' %></td>
                   <td style="font-size:.8rem;"><%= a.feature || '—' %></td>
                   <td style="font-size:.72rem;color:var(--text-muted);font-family:monospace;"><%= a.path %></td>
