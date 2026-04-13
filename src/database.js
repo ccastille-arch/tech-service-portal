@@ -340,6 +340,35 @@ function initSecuritySchema(db) {
   if (!commentCols.includes('comment_type')) {
     try { db.exec("ALTER TABLE ticket_comments ADD COLUMN comment_type TEXT NOT NULL DEFAULT 'note'"); } catch (_) {}
   }
+
+  // Tech schedules table
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS tech_schedules (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      date TEXT NOT NULL,
+      shift_start TEXT,
+      shift_end TEXT,
+      on_call INTEGER NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(user_id, date)
+    )`);
+  } catch (_) {}
+
+  // Escalation list table
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS escalation_list (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      availability TEXT NOT NULL DEFAULT 'on-shift',
+      priority_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(user_id)
+    )`);
+  } catch (_) {}
 }
 
 function purgeExpiredSessions(db) {

@@ -36,8 +36,8 @@ router.get('/calls', requireAuth, (req, res) => {
   const calls = db.prepare(sql).all(...params);
   const techs = db.prepare("SELECT id, name FROM users WHERE role IN ('admin','tech') ORDER BY name").all();
 
-  res.render('nexus-calls', {
-    title: 'Nexus Call Center',
+  res.render('calls', {
+    title: 'Call Operations',
     calls, techs,
     user, unreadCount: res.locals.unreadCount,
     csrfToken: res.locals.csrfToken
@@ -150,6 +150,145 @@ router.post('/calls/:id/to-ticket', requireAuth, (req, res) => {
   logAudit(db, { ...actorFromReq(req), action: AUDIT_ACTIONS.TICKET_CREATED, resource_type: 'ticket', resource_id: ticket_id, new_value: `from call ${call.call_number}` });
   req.session.flash = { success: `Ticket ${ticket_number} created from call.` };
   res.redirect(`/tickets/${ticket_id}`);
+});
+
+// ── Scheduler page ─────────────────────────────────────────────────────────────
+router.get('/scheduler', requireAdmin, (req, res) => {
+  try {
+    const db   = getDb();
+    const user = req.session.user;
+
+    // Build 7-day date array starting today
+    const dates = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      dates.push(d.toISOString().slice(0, 10));
+    }
+
+    const techs = db.prepare("SELECT id, name, role FROM users WHERE role IN ('admin','tech') ORDER BY name").all();
+
+    // Build schedule map: { user_id: { date: entry } }
+    const entries = db.prepare(
+      `SELECT * FROM tech_schedules WHERE date >= ? AND date <= ?`
+    ).all(dates[0], dates[6]);
+    const scheduleMap = {};
+    for (const e of entries) {
+      if (!scheduleMap[e.user_id]) scheduleMap[e.user_id] = {};
+      scheduleMap[e.user_id][e.date] = e;
+    }
+
+    // Escalation list for sidebar
+    let escalationList = db.prepare(
+      'SELECT el.*, u.name, u.role FROM escalation_list el JOIN users u ON u.id = el.user_id ORDER BY el.priority_order'
+    ).all();
+    // Auto-seed if empty
+    if (escalationList.length === 0) {
+      const now = new Date().toISOString();
+      const allUsers = db.prepare("SELECT id FROM users WHERE role IN ('admin','tech') ORDER BY name").all();
+      for (let i = 0; i < allUsers.length; i++) {
+        try { db.prepare('INSERT OR IGNORE INTO escalation_list (id, user_id, availability, priority_order, created_at, updated_at) VALUES (?,?,?,?,?,?)').run(require('crypto').randomUUID(), allUsers[i].id, 'on-shift', i, now, now); } catch (_) {}
+      }
+      escalationList = db.prepare('SELECT el.*, u.name, u.role FROM escalation_list el JOIN users u ON u.id = el.user_id ORDER BY el.priority_order').all();
+    }
+
+    res.render('scheduler', {
+      title: 'Tech Scheduler',
+      dates, techs, scheduleMap, escalationList,
+      user, unreadCount: res.locals.unreadCount,
+      csrfToken: res.locals.csrfToken
+    });
+  } catch (err) {
+    console.error('[scheduler]', err.message);
+    req.session.flash = { error: err.message };
+    res.redirect('/dashboard');
+  }
+});
+
+// ── Save schedule entry ────────────────────────────────────────────────────────
+router.post('/scheduler/save', requireAdmin, (req, res) => {
+  try {
+    const db        = getDb();
+    const { userId, date, shiftStart, shiftEnd, onCall, notes } = req.body;
+    if (!userId || !date) return res.json({ ok: false, error: 'userId and date required' });
+    const now = new Date().toISOString();
+    const onCallBit = (onCall === 'true' || onCall === true) ? 1 : 0;
+    db.prepare(`
+      INSERT INTO tech_schedules (id, user_id, date, shift_start, shift_end, on_call, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, date) DO UPDATE SET
+        shift_start=excluded.shift_start, shift_end=excluded.shift_end,
+        on_call=excluded.on_call, notes=excluded.notes, updated_at=excluded.updated_at
+    `).run(require('crypto').randomUUID(), userId, date, shiftStart || null, shiftEnd || null, onCallBit, notes || null, now, now);
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// ── Escalation page ────────────────────────────────────────────────────────────
+router.get('/escalation', requireAdmin, (req, res) => {
+  try {
+    const db   = getDb();
+    const user = req.session.user;
+    const now  = new Date().toISOString();
+
+    let escalationList = db.prepare(
+      'SELECT el.*, u.name, u.role, u.email FROM escalation_list el JOIN users u ON u.id = el.user_id ORDER BY el.priority_order'
+    ).all();
+
+    // Auto-seed if empty
+    if (escalationList.length === 0) {
+      const allUsers = db.prepare("SELECT id FROM users WHERE role IN ('admin','tech') ORDER BY name").all();
+      for (let i = 0; i < allUsers.length; i++) {
+        try { db.prepare('INSERT OR IGNORE INTO escalation_list (id, user_id, availability, priority_order, created_at, updated_at) VALUES (?,?,?,?,?,?)').run(require('crypto').randomUUID(), allUsers[i].id, 'on-shift', i, now, now); } catch (_) {}
+      }
+      escalationList = db.prepare('SELECT el.*, u.name, u.role, u.email FROM escalation_list el JOIN users u ON u.id = el.user_id ORDER BY el.priority_order').all();
+    }
+
+    res.render('escalation', {
+      title: 'Escalation Order',
+      escalationList,
+      user, unreadCount: res.locals.unreadCount,
+      csrfToken: res.locals.csrfToken
+    });
+  } catch (err) {
+    console.error('[escalation]', err.message);
+    req.session.flash = { error: err.message };
+    res.redirect('/dashboard');
+  }
+});
+
+// ── Save escalation order ─────────────────────────────────────────────────────
+router.post('/escalation/reorder', requireAdmin, (req, res) => {
+  try {
+    const db    = getDb();
+    const order = req.body.order;
+    if (!Array.isArray(order)) return res.json({ ok: false, error: 'order must be array' });
+    const now = new Date().toISOString();
+    for (const item of order) {
+      db.prepare('UPDATE escalation_list SET priority_order=?, availability=?, updated_at=? WHERE user_id=?')
+        .run(item.priorityOrder, item.availability || 'on-shift', now, item.userId);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// ── Update availability ────────────────────────────────────────────────────────
+router.post('/escalation/availability', requireAdmin, (req, res) => {
+  try {
+    const db  = getDb();
+    const { userId, availability } = req.body;
+    const allowed = ['on-shift','on-call','unavailable','out-of-service'];
+    if (!userId || !allowed.includes(availability)) return res.json({ ok: false, error: 'Invalid' });
+    db.prepare('UPDATE escalation_list SET availability=?, updated_at=? WHERE user_id=?')
+      .run(availability, new Date().toISOString(), userId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
 });
 
 module.exports = router;

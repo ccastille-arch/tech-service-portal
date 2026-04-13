@@ -17,6 +17,7 @@
         <button onclick="switchTab('audit')"    id="tab-btn-audit"    class="tab-btn-admin <%= tab==='audit'    ? 'active-tab' : '' %>">🔐 Audit Log</button>
         <button onclick="switchTab('requests')" id="tab-btn-requests" class="tab-btn-admin <%= tab==='requests' ? 'active-tab' : '' %>">💡 Feature Requests</button>
         <button onclick="switchTab('changelog')" id="tab-btn-changelog" class="tab-btn-admin <%= tab==='changelog' ? 'active-tab' : '' %>">✨ Changelog</button>
+        <button onclick="switchTab('functest')" id="tab-btn-functest" class="tab-btn-admin <%= tab==='functest' ? 'active-tab' : '' %>" style="border-color:rgba(0,212,160,.3);color:var(--success);">🧪 Function Test</button>
       </div>
 
       <style>
@@ -75,9 +76,11 @@
             <div style="font-size:.72rem;color:var(--text-muted)"><% if (u.last_login_at) { %><span data-ts="<%= u.last_login_at %>"><%= u.last_login_at.slice(0,16).replace('T',' ') %></span><% } else { %>Never<% } %></div>
             <div style="display:flex;gap:.35rem;flex-wrap:wrap;">
               <button class="btn btn-ghost btn-sm" style="font-size:.7rem;padding:.2rem .5rem;"
-                onclick="openEdit(<%- JSON.stringify(u.id) %>,<%- JSON.stringify(u.name) %>,<%- JSON.stringify(u.email) %>,<%- JSON.stringify(u.role) %>)">Edit</button>
+                data-uid="<%= u.id %>" data-name="<%= u.name %>" data-email="<%= u.email %>" data-role="<%= u.role %>"
+                onclick="openEdit(this.dataset.uid,this.dataset.name,this.dataset.email,this.dataset.role)">Edit</button>
               <button class="btn btn-ghost btn-sm" style="font-size:.7rem;padding:.2rem .5rem;"
-                onclick="openReset(<%- JSON.stringify(u.id) %>,<%- JSON.stringify(u.name) %>)">Reset PW</button>
+                data-uid="<%= u.id %>" data-name="<%= u.name %>"
+                onclick="openReset(this.dataset.uid,this.dataset.name)">Reset PW</button>
               <% if (isLocked) { %>
               <form method="POST" action="/admin/users/<%= u.id %>/unlock" style="display:inline;">
                 <input type="hidden" name="_csrf" value="<%= locals.csrfToken || csrfToken %>">
@@ -181,6 +184,54 @@
             <!-- Will be loaded via fetch -->
             <div id="changelog-list" style="padding:0 1rem;">Loading...</div>
           </div>
+        </div>
+      </div>
+
+      <!-- ── FUNCTION TEST TAB ──────────────────────────────────────────────── -->
+      <div class="admin-tab <%= tab==='functest' ? 'active' : '' %>" id="panel-functest">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;margin-bottom:1.25rem;">
+
+          <!-- Scenario cards -->
+          <% const scenarios = [
+            { id:'full_ticket_workflow', icon:'⚙️', label:'Full Ticket Workflow',    color:'var(--primary)',   desc:'Create ticket → add note → log 90min → finalize → close. Tests the complete work order lifecycle.' },
+            { id:'inbound_call',         icon:'📞', label:'Inbound Call Simulation', color:'var(--secondary)', desc:'Create queued call → assign → convert to ticket → end call. Tests the Nexus call center flow.' },
+            { id:'fleet_alert',          icon:'🔔', label:'Fleet Alert → Ticket',    color:'var(--warning)',   desc:'Simulate a random MLink telemetry alarm (Compressor A/B or Panel) that auto-creates a priority ticket.' },
+            { id:'notification_test',    icon:'💬', label:'Notification Test',       color:'var(--success)',   desc:'Fire all 4 notification types (assigned, status, overdue, fleet) to your inbox. Check the bell icon.' },
+            { id:'health_check',         icon:'💓', label:'System Health Check',     color:'var(--success)',   desc:'Query every database table and report row counts. Confirms DB schema is intact and accessible.' },
+          ]; %>
+          <% for (const s of scenarios) { %>
+          <div class="card" style="border-left:3px solid <%= s.color %>;">
+            <div style="padding:.9rem 1rem;">
+              <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem;">
+                <span style="font-size:1.2rem;"><%= s.icon %></span>
+                <span style="font-weight:700;color:var(--text-bright);font-size:.9rem;"><%= s.label %></span>
+              </div>
+              <p style="font-size:.78rem;color:var(--text-muted);margin:0 0 .75rem;line-height:1.5;"><%= s.desc %></p>
+              <button class="btn btn-sm" style="background:rgba(0,212,160,.1);border-color:rgba(0,212,160,.3);color:var(--success);font-size:.75rem;"
+                onclick="runScenario('<%= s.id %>','<%= s.label %>')">▶ Run Test</button>
+            </div>
+          </div>
+          <% } %>
+        </div>
+
+        <!-- Results panel -->
+        <div class="card" id="test-results-card" style="display:none;">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="card-title" id="test-results-title">Test Results</div>
+            <span id="test-results-badge" style="font-size:.7rem;padding:.2rem .6rem;border-radius:10px;font-weight:700;"></span>
+          </div>
+          <div id="test-results-body" style="padding:.75rem 1rem;font-family:monospace;font-size:.82rem;line-height:1.8;"></div>
+          <div style="padding:.5rem 1rem .75rem;border-top:1px solid var(--border);display:flex;gap:.5rem;align-items:center;">
+            <a id="test-view-link" href="#" class="btn btn-ghost btn-sm" style="display:none;font-size:.75rem;">→ View Record</a>
+            <button class="btn btn-ghost btn-sm" style="font-size:.75rem;" onclick="document.getElementById('test-results-card').style.display='none'">Dismiss</button>
+          </div>
+        </div>
+
+        <!-- Cleanup -->
+        <div style="margin-top:.5rem;padding-top:.75rem;border-top:1px solid var(--border);display:flex;align-items:center;gap:1rem;">
+          <span style="font-size:.78rem;color:var(--text-muted);">All test records are tagged <code style="background:var(--bg-mid);padding:.1rem .35rem;border-radius:3px;">[TEST]</code> and safe to remove.</span>
+          <button class="btn btn-sm" style="background:rgba(255,51,85,.08);border-color:rgba(255,51,85,.25);color:var(--danger);font-size:.75rem;white-space:nowrap;"
+            onclick="runScenario('cleanup','Cleanup')">🗑 Delete All Test Data</button>
         </div>
       </div>
 
@@ -369,6 +420,60 @@ async function submitChangelog() {
     document.getElementById('cl-title').value = '';
     document.getElementById('cl-desc').value  = '';
     loadChangelog();
+  }
+}
+
+// ── Function Test ─────────────────────────────────────────────────────────────
+async function runScenario(scenario, label) {
+  const card   = document.getElementById('test-results-card');
+  const title  = document.getElementById('test-results-title');
+  const body   = document.getElementById('test-results-body');
+  const badge  = document.getElementById('test-results-badge');
+  const link   = document.getElementById('test-view-link');
+  const csrf   = document.querySelector('input[name=_csrf]')?.value || '';
+
+  card.style.display = 'block';
+  title.textContent  = label;
+  badge.textContent  = 'Running…';
+  badge.style.background = 'rgba(255,214,10,.15)';
+  badge.style.color       = 'var(--warning)';
+  body.innerHTML = '<span style="color:var(--text-muted)">Running…</span>';
+  link.style.display = 'none';
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  try {
+    const res  = await fetch('/admin/test/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify({ scenario })
+    });
+    const data = await res.json();
+
+    const steps = data.steps || [];
+    body.innerHTML = steps.map(s =>
+      `<div style="color:${s.ok ? 'var(--success)' : 'var(--danger)'}">${s.ok ? '✓' : '✗'} ${s.msg}</div>`
+    ).join('') || (data.error ? `<div style="color:var(--danger)">✗ ${data.error}</div>` : '');
+
+    const allOk = data.ok && steps.every(s => s.ok);
+    badge.textContent  = allOk ? 'PASSED' : 'FAILED';
+    badge.style.background = allOk ? 'rgba(0,212,160,.15)' : 'rgba(255,51,85,.15)';
+    badge.style.color       = allOk ? 'var(--success)'     : 'var(--danger)';
+
+    // Show view link if a record was created
+    if (data.ticketId) {
+      link.href = '/tickets/' + data.ticketId;
+      link.textContent = `→ View Ticket ${data.ticketNumber || ''}`;
+      link.style.display = 'inline-flex';
+    } else if (data.callId) {
+      link.href = '/nexus/calls';
+      link.textContent = `→ View Call ${data.callNumber || ''}`;
+      link.style.display = 'inline-flex';
+    }
+  } catch (err) {
+    body.innerHTML = `<div style="color:var(--danger)">✗ Request failed: ${err.message}</div>`;
+    badge.textContent = 'ERROR';
+    badge.style.background = 'rgba(255,51,85,.15)';
+    badge.style.color = 'var(--danger)';
   }
 }
 
