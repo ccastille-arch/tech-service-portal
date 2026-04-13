@@ -197,10 +197,10 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error(err);
+  console.error('[SERVER ERROR]', err.message, err.stack);
   res.status(500).render('error', {
     title: 'Server Error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'An unexpected error occurred.',
+    message: err.message || 'An unexpected error occurred.',
     user: req.session && req.session.user,
     unreadCount: 0
   });
