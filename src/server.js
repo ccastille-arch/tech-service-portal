@@ -98,6 +98,34 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── SSO token auto-login ──────────────────────────────────────────────────────
+// When SSO portal redirects here with ?sso_token=<jwt>, validate and create session
+app.use((req, res, next) => {
+  const token = req.query.sso_token;
+  if (!token) return next();
+  try {
+    const jwt = require('jsonwebtoken');
+    const secret = process.env.SSO_TOKEN_SECRET || process.env.SESSION_SECRET || 'dev-secret-change-me';
+    const payload = jwt.verify(token, secret);
+    // Create session from SSO payload
+    req.session.user = {
+      id:       payload.sub,
+      username: payload.username || payload.email?.split('@')[0] || 'user',
+      name:     payload.name,
+      email:    payload.email,
+      role:     payload.role || 'tech'
+    };
+    // Strip token from URL and redirect clean
+    const clean = req.path + (Object.keys(req.query).filter(k => k !== 'sso_token').length
+      ? '?' + new URLSearchParams(Object.fromEntries(Object.entries(req.query).filter(([k]) => k !== 'sso_token'))).toString()
+      : '');
+    return req.session.save(() => res.redirect(clean || '/dashboard'));
+  } catch (e) {
+    // Invalid/expired token — fall through to normal login
+    return next();
+  }
+});
+
 // Voice webhooks — exempt from CSRF (Twilio posts here without tokens)
 const voiceRoutes = require('./routes/voice');
 app.use('/voice', voiceRoutes);
