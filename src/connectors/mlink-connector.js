@@ -27,6 +27,7 @@ class MlinkConnector extends BaseConnector {
   }
 
   async _fetch(endpoint, params = {}) {
+    const zlib = require('zlib');
     const url = new URL(this.baseUrl + '/' + endpoint.replace(/^\//, ''));
     url.searchParams.set('code', this._apiKey());
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -37,14 +38,22 @@ class MlinkConnector extends BaseConnector {
         port: 443,
         path: url.pathname + url.search,
         method: 'GET',
-        headers: { 'Accept': 'application/json', 'User-Agent': 'TechServicePortal/2.0' },
+        headers: { 'Accept': 'application/json', 'Accept-Encoding': 'gzip, deflate', 'User-Agent': 'TechServicePortal/2.0' },
       }, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => {
-          let json;
-          try { json = JSON.parse(data); } catch { json = data; }
-          resolve({ status: res.statusCode, body: json });
+        // Handle gzip/deflate decompression
+        let stream = res;
+        if (res.headers['content-encoding'] === 'gzip') stream = res.pipe(zlib.createGunzip());
+        else if (res.headers['content-encoding'] === 'deflate') stream = res.pipe(zlib.createInflate());
+
+        const chunks = [];
+        stream.on('data', chunk => chunks.push(chunk));
+        stream.on('error', reject);
+        stream.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
+          let body = raw;
+          // MLink double-encodes some responses (JSON string inside JSON string)
+          try { body = JSON.parse(raw); if (typeof body === 'string') body = JSON.parse(body); } catch { /* keep as string */ }
+          resolve({ status: res.statusCode, body });
         });
       });
       req.on('error', reject);
