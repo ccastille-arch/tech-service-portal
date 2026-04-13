@@ -6,12 +6,51 @@
  * POST /voice/recording — voicemail transcription received
  * POST /voice/status    — call completed callback
  */
-const express = require('express');
+const express   = require('express');
+const crypto    = require('crypto');
 const { v4: uuidv4 } = require('uuid');
-const { getDb } = require('../database');
-const { nextTicketNumber } = require('../database');
+const { getDb, nextTicketNumber } = require('../database');
 const { notifyAssignment } = require('../services/notifications');
 const router = express.Router();
+
+// ── Twilio webhook signature verification ─────────────────────────────────────
+// Validates X-Twilio-Signature to ensure requests genuinely come from Twilio.
+// If TWILIO_AUTH_TOKEN is not set, validation is skipped with a warning (dev mode).
+function verifyTwilioSignature(req, res, next) {
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!authToken) {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('[SECURITY] TWILIO_AUTH_TOKEN not set — webhook signature verification disabled in production!');
+    }
+    return next(); // skip in dev / when not yet configured
+  }
+
+  const signature = req.headers['x-twilio-signature'] || '';
+  const baseUrl   = (process.env.WEBHOOK_BASE_URL || `https://${req.headers.host}`) + req.originalUrl.split('?')[0];
+
+  // Build the string to sign: URL + sorted POST params concatenated
+  const params    = req.body || {};
+  const sortedStr = Object.keys(params).sort().reduce((s, k) => s + k + params[k], baseUrl);
+  const expected  = crypto.createHmac('sha1', authToken).update(sortedStr).digest('base64');
+
+  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    const { logAudit, getClientIp, AUDIT_ACTIONS } = require('../services/audit');
+    try {
+      logAudit(getDb(), {
+        action: AUDIT_ACTIONS.SECURITY_UNAUTH,
+        resource_type: 'webhook',
+        new_value: `invalid Twilio signature on ${req.method} ${req.path}`,
+        ip: getClientIp(req),
+        user_agent: req.headers['user-agent'],
+      });
+    } catch (_) {}
+    return res.status(403).type('text/xml').send('<?xml version="1.0"?><Response><Reject/></Response>');
+  }
+  next();
+}
+
+// Apply to all voice webhook routes
+router.use(verifyTwilioSignature);
 
 // ── TwiML helpers ──────────────────────────────────────────────────────────
 function twiml(inner) {

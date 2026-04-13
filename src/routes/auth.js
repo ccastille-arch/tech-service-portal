@@ -1,6 +1,6 @@
 'use strict';
 const express = require('express');
-const bcrypt = require('bcryptjs');
+const bcrypt  = require('bcryptjs');
 const { getDb } = require('../database');
 const { logAudit, actorFromReq, AUDIT_ACTIONS } = require('../services/audit');
 const { sanitizeString } = require('../middleware/validate');
@@ -19,9 +19,9 @@ router.get('/login', (req, res) => {
   res.render('login', { title: 'Tech Service Portal — Login', error: null, csrfToken: res.locals.csrfToken });
 });
 
-router.post('/login', (req, res) => {
+router.post('/login', (req, res, next) => {
   const username = sanitizeString(req.body.username, 100);
-  const password = req.body.password ? String(req.body.password) : null;
+  const password  = req.body.password ? String(req.body.password) : null;
 
   if (!username || !password) {
     return res.render('login', { title: 'Tech Service Portal — Login', error: 'Username and password required.', csrfToken: res.locals.csrfToken });
@@ -39,7 +39,7 @@ router.post('/login', (req, res) => {
     return res.render('login', { title: 'Tech Service Portal — Login', error: 'Invalid username or password.', csrfToken: res.locals.csrfToken });
   }
 
-  // Lockout check
+  // Account lockout check
   if (user.locked_until && new Date(user.locked_until) > new Date()) {
     const mins = Math.ceil((new Date(user.locked_until) - Date.now()) / 60000);
     logAudit(db, { actor_id: user.id, actor_name: user.name, action: AUDIT_ACTIONS.LOGIN_FAILED, resource_type: 'user', resource_id: user.id, new_value: 'blocked — account locked', ip, user_agent: ua });
@@ -60,18 +60,27 @@ router.post('/login', (req, res) => {
     return res.render('login', { title: 'Tech Service Portal — Login', error: 'Invalid username or password.', csrfToken: res.locals.csrfToken });
   }
 
-  // Success — reset counters and create session
+  // Success — reset lockout counters
   const now = new Date().toISOString();
   db.prepare('UPDATE users SET login_attempts=0, locked_until=NULL, last_login_at=?, updated_at=? WHERE id=?').run(now, now, user.id);
 
-  req.session.user = { id: user.id, username: user.username, name: user.name, email: user.email, role: user.role };
-  req.session.flash = { success: `Welcome back, ${user.name.split(' ')[0]}!` };
+  // FIX: Regenerate session ID on login to prevent session fixation attacks
+  const userData   = { id: user.id, username: user.username, name: user.name, email: user.email, role: user.role };
+  const returnTo   = req.session.returnTo || '/dashboard';
+  const firstName  = user.name.split(' ')[0];
 
-  logAudit(db, { actor_id: user.id, actor_name: user.name, action: AUDIT_ACTIONS.LOGIN_SUCCESS, resource_type: 'user', resource_id: user.id, ip, user_agent: ua });
+  req.session.regenerate((err) => {
+    if (err) return next(err);
+    req.session.user  = userData;
+    req.session.flash = { success: `Welcome back, ${firstName}!` };
 
-  const returnTo = req.session.returnTo || '/dashboard';
-  delete req.session.returnTo;
-  res.redirect(returnTo);
+    logAudit(db, { actor_id: user.id, actor_name: user.name, action: AUDIT_ACTIONS.LOGIN_SUCCESS, resource_type: 'user', resource_id: user.id, ip, user_agent: ua });
+
+    req.session.save((saveErr) => {
+      if (saveErr) return next(saveErr);
+      res.redirect(returnTo);
+    });
+  });
 });
 
 router.get('/logout', (req, res) => {

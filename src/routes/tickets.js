@@ -13,6 +13,7 @@ const {
   sanitizeString, validatePriority, validateStatus, validateCategory,
   validateSortCol, validateDate, sanitizeSearchQuery
 } = require('../middleware/validate');
+const { ticketScopeClause } = require('../middleware/authorize');
 const router = express.Router();
 
 // Multer setup
@@ -68,6 +69,10 @@ router.get('/', requireAuth, (req, res) => {
     sql += ' AND (t.title LIKE ? OR t.description LIKE ? OR t.ticket_number LIKE ? OR t.well_site LIKE ?)';
     params.push(like, like, like, like);
   }
+
+  // Row-level scoping: techs only see tickets they created or are assigned to
+  const scope = ticketScopeClause(req.session.user);
+  if (scope.clause) { sql += scope.clause; params.push(...scope.params); }
 
   const sortDir = order === 'asc' ? 'ASC' : 'DESC';
   sql += ` ORDER BY t.${sort} ${sortDir}`;

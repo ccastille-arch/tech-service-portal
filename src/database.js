@@ -16,8 +16,20 @@ function getDb() {
     db = new DatabaseSync(path.resolve(DB_PATH));
     db.exec('PRAGMA journal_mode = WAL');
     db.exec('PRAGMA foreign_keys = ON');
+    db.exec('PRAGMA busy_timeout = 5000');   // wait up to 5s on write contention
+    db.exec('PRAGMA synchronous = NORMAL');  // safe with WAL, better write perf
   }
   return db;
+}
+
+// Purge expired sessions — call periodically (or on startup)
+function purgeExpiredSessions(db) {
+  try {
+    const result = db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date().toISOString());
+    if (result.changes > 0) console.log(`[DB] Purged ${result.changes} expired session(s).`);
+  } catch (e) {
+    console.error('[DB] Session purge error:', e.message);
+  }
 }
 
 function initializeDatabase() {
@@ -264,6 +276,7 @@ function initializeDatabase() {
   seedChangelog(db);
   initNexusSchema(db);
   initSecuritySchema(db);
+  purgeExpiredSessions(db);
 }
 
 function initSecuritySchema(db) {
@@ -517,4 +530,4 @@ function nextTicketNumber(db) {
   return 'TKT-' + String(num + 1).padStart(4, '0');
 }
 
-module.exports = { getDb, initializeDatabase, nextTicketNumber };
+module.exports = { getDb, initializeDatabase, nextTicketNumber, purgeExpiredSessions };

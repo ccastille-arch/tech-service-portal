@@ -6,7 +6,7 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { getDb, initializeDatabase } = require('./database');
-const { validateSecretsOnStartup } = require('./services/secrets');
+const { validateSecretsOnStartup, getSecret } = require('./services/secrets');
 
 // Validate secrets and warn about insecure defaults before anything else
 validateSecretsOnStartup();
@@ -23,12 +23,15 @@ app.set('trust proxy', 1);
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '../views'));
 
-// Static files
-app.use('/public', express.static(path.join(__dirname, '../public')));
+// Static files — public assets served openly, but uploads require authentication
+app.use('/public/css',  express.static(path.join(__dirname, '../public/css')));
+app.use('/public/js',   express.static(path.join(__dirname, '../public/js')));
+app.use('/public/img',  express.static(path.join(__dirname, '../public/img')));
+// Uploads gated behind auth — handled after session middleware below
 
-// Body parsing
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(express.json({ limit: '10mb' }));
+// Body parsing — tight limits for all non-upload routes (uploads handled by multer separately)
+app.use(express.urlencoded({ extended: true, limit: '200kb' }));
+app.use(express.json({ limit: '200kb' }));
 
 // SQLite-backed session store
 class DbSessionStore extends session.Store {
@@ -82,8 +85,10 @@ app.use(session({
 }));
 
 // Rate limiting
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false });
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+const limiter      = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false });
+const authLimiter  = rateLimit({ windowMs: 15 * 60 * 1000, max: 20,  standardHeaders: true, legacyHeaders: false });
+const adminLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
+const nexusLimiter = rateLimit({ windowMs:  1 * 60 * 1000, max: 30,  standardHeaders: true, legacyHeaders: false });
 app.use(limiter);
 
 // Security headers
@@ -126,7 +131,7 @@ app.use((req, res, next) => {
   if (!token) return next();
   try {
     const jwt = require('jsonwebtoken');
-    const secret = process.env.SESSION_SECRET || 'dev-secret-change-me';
+    const secret = getSecret('SESSION_SECRET', 'dev-secret-change-me');
     const payload = jwt.verify(token, secret);
     // Create session from SSO payload
     req.session.user = {
@@ -173,13 +178,20 @@ const fleetRoutes = require('./routes/fleet');
 const adminRoutes = require('./routes/admin');
 const communityRoutes = require('./routes/community');
 
+// Auth-gated upload file serving
+const { requireAuth: _requireAuth } = require('./middleware/authenticate');
+app.use('/public/uploads', _requireAuth, express.static(path.join(__dirname, '../public/uploads')));
+
 app.use('/login', authLimiter);
+app.use('/admin', adminLimiter);
+app.use('/nexus/calls/create', nexusLimiter);
 app.use('/', authRoutes);
 app.use('/', dashboardRoutes);
 app.use('/tickets', ticketRoutes);
 app.use('/notifications', notifRoutes);
-app.use('/reports', reportsRoutes);
-app.use('/api/reports', reportsRoutes);
+const { requireAdmin: _requireAdmin } = require('./middleware/authenticate');
+app.use('/reports', _requireAdmin, reportsRoutes);
+app.use('/api/reports', _requireAdmin, reportsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/integrations', integrationRoutes);
 app.use('/sync', syncRoutes);
