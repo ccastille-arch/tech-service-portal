@@ -91,7 +91,7 @@
                 <td><span class="badge badge-<%= t.priority.toLowerCase() %>"><%= t.priority %></span></td>
                 <td><span class="badge badge-<%= t.status %>"><%= t.status %></span></td>
                 <td><span class="badge badge-sla-<%= t.slaStatus %>"><%= t.slaStatus %></span></td>
-                <td style="color:var(--text-muted);font-size:.85rem;"><%= t.due_date ? `<span data-ts="${t.due_date}" data-ts-fmt="date">${t.due_date.slice(0,10)}</span>` : '—' %></td>
+                <td style="color:var(--text-muted);font-size:.85rem;"><%= t.due_date ? new Date(t.due_date).toLocaleDateString() : '—' %></td>
               </tr>
               <% } %>
             </tbody>
@@ -129,39 +129,33 @@
       </div>
       <% } %>
 
-      <!-- What's New -->
-      <% if (whatsNew && whatsNew.length > 0) { %>
+      <!-- Integrations Live Status -->
       <div class="card mb-3">
         <div class="card-header">
-          <div class="card-title">✨ What's New</div>
-          <a href="/whats-new" class="btn btn-ghost btn-sm">See All</a>
+          <div class="card-title">🔌 Integrations — Live Data</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadIntegrations()">⟳ Refresh</button>
         </div>
-        <%
-          const _typeConfig = {
-            new:         { label: 'New',         color: 'var(--success)',   icon: '🚀' },
-            feature:     { label: 'Feature',     color: 'var(--secondary)', icon: '✨' },
-            improvement: { label: 'Improvement', color: 'var(--primary)',   icon: '⚡' },
-            fix:         { label: 'Fix',         color: 'var(--warning)',   icon: '🔧' },
-          };
-        %>
-        <div style="display:flex;flex-direction:column;">
-          <% for (const e of whatsNew) { %>
-          <% const _cfg = _typeConfig[e.type] || _typeConfig.feature; %>
-          <div style="display:flex;gap:.75rem;padding:.75rem 1rem;border-bottom:1px solid var(--border);align-items:flex-start;">
-            <span style="font-size:1.2rem;line-height:1;margin-top:.1rem;"><%= _cfg.icon %></span>
-            <div style="flex:1;">
-              <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.15rem;">
-                <span style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:<%= _cfg.color %>"><%= _cfg.label %></span>
-                <span data-ts="<%= e.created_at %>" data-ts-fmt="short" style="font-size:.7rem;color:var(--text-muted)"><%= e.created_at.slice(0,10) %></span>
-              </div>
-              <div style="font-weight:600;font-size:.88rem;color:var(--text-bright);"><%= e.title %></div>
-              <div style="font-size:.78rem;color:var(--text-muted);margin-top:.15rem;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;"><%= e.description %></div>
+        <div id="integrations-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;padding:4px 0;">
+          <!-- Enbase -->
+          <div class="stat-card" id="enbase-card" style="flex-direction:column;align-items:flex-start;gap:6px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+              <span style="font-weight:700;font-size:.9rem;">🛢 Detechtion Enbase</span>
+              <span id="enbase-badge" class="badge" style="font-size:.7rem;">loading…</span>
             </div>
+            <div id="enbase-summary" style="font-size:.82rem;color:var(--text-muted);line-height:1.5;">Connecting…</div>
+            <div id="enbase-alarms" style="font-size:.78rem;"></div>
           </div>
-          <% } %>
+          <!-- MLink -->
+          <div class="stat-card" id="mlink-card" style="flex-direction:column;align-items:flex-start;gap:6px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+              <span style="font-weight:700;font-size:.9rem;">⚙️ FW Murphy MLink</span>
+              <span id="mlink-badge" class="badge" style="font-size:.7rem;">loading…</span>
+            </div>
+            <div id="mlink-summary" style="font-size:.82rem;color:var(--text-muted);line-height:1.5;">Connecting…</div>
+            <div id="mlink-readings" style="font-size:.78rem;"></div>
+          </div>
         </div>
       </div>
-      <% } %>
 
       <!-- Recent Activity -->
       <div class="card">
@@ -177,7 +171,7 @@
           <% for (const a of activity) { %>
           <div class="timeline-item">
             <div class="timeline-dot <%= a.field_changed === 'status' ? 'primary' : '' %>"></div>
-            <div class="timeline-time"><span data-ts="<%= a.changed_at %>"><%= a.changed_at.slice(0,16).replace('T',' ') %></span></div>
+            <div class="timeline-time"><%= new Date(a.changed_at).toLocaleString() %></div>
             <div class="timeline-text">
               <strong><%= a.actor_name %></strong> changed
               <a href="/tickets/<%= a.ticket_id %>" style="color:var(--secondary);"><%= a.ticket_number %></a>
@@ -194,5 +188,80 @@
   </div>
 </div>
 <script src="/public/js/app.js"></script>
+<script>
+function esc(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function loadEnbase() {
+  const badge = document.getElementById('enbase-badge');
+  const summary = document.getElementById('enbase-summary');
+  const alarmEl = document.getElementById('enbase-alarms');
+  try {
+    const r = await fetch('/integrations/live/enbase?type=alarms');
+    const d = await r.json();
+    if (d.ok) {
+      badge.textContent = d.count + ' alarms';
+      badge.className = 'badge ' + (d.count > 0 ? 'badge-p2' : 'badge-p4');
+      const active = d.records.filter(a => /active|open|new/i.test(String(a.status||a.state||'')));
+      summary.textContent = `${d.count} alarm records · ${active.length} active`;
+      if (d.records.length) {
+        alarmEl.innerHTML = d.records.slice(0,3).map(a =>
+          `<div style="padding:3px 0;border-bottom:1px solid var(--border)">
+            <span style="color:${/crit|high|1/i.test(String(a.severity||a.priority||''))? 'var(--danger)':'var(--warning)'}">●</span>
+            ${esc(a.message||a.alarmText||a.description||a.name||'Alarm')}
+            <span style="color:var(--text-muted);float:right">${esc(a.assetName||a.asset||'')}</span>
+          </div>`
+        ).join('');
+      }
+    } else {
+      badge.textContent = 'error'; badge.className = 'badge badge-p1';
+      summary.textContent = d.error || 'Connection failed';
+    }
+  } catch(e) {
+    document.getElementById('enbase-badge').textContent = 'offline';
+    document.getElementById('enbase-summary').textContent = e.message;
+  }
+}
+
+async function loadMlink() {
+  const badge = document.getElementById('mlink-badge');
+  const summary = document.getElementById('mlink-summary');
+  const readEl = document.getElementById('mlink-readings');
+  try {
+    const r = await fetch('/integrations/live/mlink?type=telemetry');
+    const d = await r.json();
+    if (d.ok) {
+      badge.textContent = d.count + ' readings';
+      badge.className = 'badge badge-p4';
+      summary.textContent = `${d.count} data points across ${[...new Set(d.records.map(r=>r._deviceId).filter(Boolean))].length || '?'} devices`;
+      if (d.records.length) {
+        const byDevice = {};
+        d.records.forEach(r => {
+          const lbl = r._deviceLabel || r._deviceId || 'Unknown';
+          if (!byDevice[lbl]) byDevice[lbl] = [];
+          byDevice[lbl].push(r);
+        });
+        readEl.innerHTML = Object.entries(byDevice).slice(0,3).map(([lbl, rows]) => {
+          const row = rows[0];
+          const val = row.value ?? row.reading ?? row.currentValue ?? '—';
+          const unit = row.unit ?? row.uom ?? '';
+          return `<div style="padding:3px 0;border-bottom:1px solid var(--border)">
+            <strong>${esc(lbl)}</strong>
+            <span style="color:var(--text-muted);float:right">${esc(val)} ${esc(unit)}</span>
+          </div>`;
+        }).join('');
+      }
+    } else {
+      badge.textContent = 'error'; badge.className = 'badge badge-p1';
+      summary.textContent = d.error || 'Connection failed';
+    }
+  } catch(e) {
+    document.getElementById('mlink-badge').textContent = 'offline';
+    document.getElementById('mlink-summary').textContent = e.message;
+  }
+}
+
+function loadIntegrations() { loadEnbase(); loadMlink(); }
+loadIntegrations();
+</script>
 </body>
 </html>

@@ -7,11 +7,11 @@ const { sanitizeString, validateEnum } = require('../middleware/validate');
 const router = express.Router();
 
 const ALLOWED_FR_STATUSES = ['submitted','under-review','planned','in-progress','completed','declined'];
-const ALLOWED_FR_SORTS    = ['votes', 'new'];
+const ALLOWED_FR_SORTS    = ['votes','new'];
 
-// ── What's New (changelog) ────────────────────────────────────────────────────
+// ── What's New ────────────────────────────────────────────────────────────────
 router.get('/whats-new', requireAuth, (req, res) => {
-  const db = getDb();
+  const db      = getDb();
   const entries = db.prepare('SELECT * FROM changelog WHERE is_published=1 ORDER BY created_at DESC').all();
   res.render('whats-new', { title: "What's New", user: req.session.user, unreadCount: res.locals.unreadCount || 0, entries });
 });
@@ -64,7 +64,7 @@ router.post('/feature-requests/:id/vote', requireAuth, (req, res) => {
 
 // ── Admin: update feature request status ──────────────────────────────────────
 router.post('/feature-requests/:id/status', requireAdmin, (req, res) => {
-  const status    = validateEnum(req.body.status, ALLOWED_FR_STATUSES, 'submitted');
+  const status     = validateEnum(req.body.status, ALLOWED_FR_STATUSES, 'submitted');
   const admin_note = sanitizeString(req.body.admin_note, 1000);
   const priority   = sanitizeString(req.body.priority, 20);
   const db = getDb();
@@ -79,28 +79,6 @@ router.post('/feature-requests/:id/delete', requireAdmin, (req, res) => {
   db.prepare('DELETE FROM feature_requests WHERE id=?').run(req.params.id);
   req.session.flash = { success: 'Request deleted.' };
   res.redirect('/feature-requests');
-});
-
-// ── Admin: changelog CRUD ─────────────────────────────────────────────────────
-router.post('/admin/changelog', requireAdmin, (req, res) => {
-  const title       = sanitizeString(req.body.title, 200);
-  const description = sanitizeString(req.body.description, 2000);
-  const type        = validateEnum(req.body.type, ['new','feature','improvement','fix'], 'feature');
-  const version     = sanitizeString(req.body.version, 20);
-  if (!title || !description) return res.json({ ok: false, error: 'Title and description required.' });
-  const db  = getDb();
-  const now = new Date().toISOString();
-  const id  = uuidv4();
-  db.prepare('INSERT INTO changelog (id, version, title, description, type, is_published, created_by, created_at, updated_at) VALUES (?,?,?,?,?,1,?,?,?)')
-    .run(id, version, title, description, type, req.session.user.id, now, now);
-  res.json({ ok: true, id });
-});
-
-router.post('/admin/changelog/:id/delete', requireAdmin, (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM changelog WHERE id=?').run(req.params.id);
-  req.session.flash = { success: 'Changelog entry deleted.' };
-  res.redirect('/admin?tab=changelog');
 });
 
 module.exports = router;

@@ -75,6 +75,26 @@
               <input class="form-control" type="text" name="well_site" placeholder="e.g. Pratt #14-H">
             </div>
           </div>
+          <!-- Asset Link (Enbase / MLink) -->
+          <div class="form-group" style="border-top:1px solid var(--border);padding-top:1rem;margin-top:.5rem;">
+            <label class="form-label">Link to Asset <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
+            <div class="form-row">
+              <div class="form-group">
+                <select class="form-control" name="source_system" id="source-system-select" onchange="onSourceChange(this.value)">
+                  <option value="">— No linked asset —</option>
+                  <option value="enbase">Detechtion Enbase</option>
+                  <option value="mlink">FW Murphy MLink</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <select class="form-control" name="external_id" id="asset-select" disabled>
+                  <option value="">— Select source first —</option>
+                </select>
+              </div>
+            </div>
+            <div id="asset-load-status" style="font-size:.78rem;color:var(--text-muted);margin-top:4px;"></div>
+          </div>
+
           <div class="d-flex gap-1">
             <button type="submit" class="btn btn-primary btn-lg">Create Work Order</button>
             <a href="/tickets" class="btn btn-ghost btn-lg">Cancel</a>
@@ -86,6 +106,32 @@
 </div>
 <script>
 const csrfToken = '<%= csrfToken %>';
+
+async function onSourceChange(source) {
+  const sel = document.getElementById('asset-select');
+  const status = document.getElementById('asset-load-status');
+  sel.innerHTML = '<option value="">Loading…</option>';
+  sel.disabled = true;
+  if (!source) { sel.innerHTML = '<option value="">— Select source first —</option>'; return; }
+  status.textContent = 'Fetching assets…';
+  try {
+    const r = await fetch('/integrations/live/assets');
+    const d = await r.json();
+    const filtered = (d.assets || []).filter(a => a.source === source);
+    if (filtered.length === 0) {
+      sel.innerHTML = '<option value="">No assets found</option>';
+      status.textContent = 'No assets returned from ' + source;
+    } else {
+      sel.innerHTML = '<option value="">— Select asset —</option>' +
+        filtered.map(a => `<option value="${a.id}">${a.name}${a.type ? ' ('+a.type+')' : ''}</option>`).join('');
+      sel.disabled = false;
+      status.textContent = filtered.length + ' assets loaded';
+    }
+  } catch(e) {
+    sel.innerHTML = '<option value="">Error loading assets</option>';
+    status.textContent = 'Error: ' + e.message;
+  }
+}
 </script>
 <script src="/public/js/app.js"></script>
 <script src="/public/js/ticket-detail.js"></script>

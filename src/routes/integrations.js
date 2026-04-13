@@ -188,4 +188,83 @@ router.post('/:id/mappings', requireAdmin, (req, res) => {
   res.redirect(`/integrations/${req.params.id}`);
 });
 
+// ── Live data proxy routes (requireAuth, not admin) ─────────────────────────
+// Used by the dashboard Integrations tab for real-time status cards.
+const { requireAuth } = require('../middleware/authenticate');
+
+function getConnector(db, type) {
+  const integration = db.prepare('SELECT * FROM integrations WHERE type=? AND enabled=1').get(type);
+  if (!integration) return null;
+  const credentials = db.prepare('SELECT * FROM integration_credentials WHERE integration_id=?').all(integration.id);
+  const fieldMaps   = db.prepare('SELECT * FROM field_mappings WHERE integration_id=?').all(integration.id);
+  const ConnectorClass = registry.get(type);
+  if (!ConnectorClass) return null;
+  return new ConnectorClass(integration, credentials, fieldMaps);
+}
+
+// GET /integrations/live/enbase?type=alarms|assets|devices
+router.get('/live/enbase', requireAuth, async (req, res) => {
+  const db = getDb();
+  const objectType = req.query.type || 'alarms';
+  try {
+    const connector = getConnector(db, 'enbase');
+    if (!connector) return res.json({ ok: false, error: 'Enbase integration not found or disabled' });
+    const records = await connector.syncInbound(objectType);
+    res.json({ ok: true, objectType, count: records.length, records: records.slice(0, 50) });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// GET /integrations/live/mlink?type=telemetry
+router.get('/live/mlink', requireAuth, async (req, res) => {
+  const db = getDb();
+  const objectType = req.query.type || 'telemetry';
+  try {
+    const connector = getConnector(db, 'mlink');
+    if (!connector) return res.json({ ok: false, error: 'MLink integration not found or disabled' });
+    const records = await connector.syncInbound(objectType);
+    res.json({ ok: true, objectType, count: records.length, records: records.slice(0, 50) });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// GET /integrations/live/assets — combined asset list for ticket linking
+router.get('/live/assets', requireAuth, async (req, res) => {
+  const db = getDb();
+  const assets = [];
+  // Enbase assets
+  try {
+    const c = getConnector(db, 'enbase');
+    if (c) {
+      const records = await c.syncInbound('assets');
+      for (const r of records.slice(0, 100)) {
+        assets.push({
+          source: 'enbase',
+          id: r.id || r.assetId || r.assetID,
+          name: r.name || r.assetName || String(r.id),
+          type: r.type || r.assetType || 'Asset',
+        });
+      }
+    }
+  } catch (_) {}
+  // MLink devices
+  try {
+    const c = getConnector(db, 'mlink');
+    if (c) {
+      const records = await c.syncInbound('devices');
+      for (const r of records.slice(0, 20)) {
+        assets.push({
+          source: 'mlink',
+          id: r._deviceId || r.deviceId || r.id,
+          name: r._deviceLabel || r.name || r.deviceName || String(r._deviceId),
+          type: 'Device',
+        });
+      }
+    }
+  } catch (_) {}
+  res.json({ ok: true, assets });
+});
+
 module.exports = router;

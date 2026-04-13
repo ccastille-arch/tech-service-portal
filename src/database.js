@@ -16,20 +16,10 @@ function getDb() {
     db = new DatabaseSync(path.resolve(DB_PATH));
     db.exec('PRAGMA journal_mode = WAL');
     db.exec('PRAGMA foreign_keys = ON');
-    db.exec('PRAGMA busy_timeout = 5000');   // wait up to 5s on write contention
-    db.exec('PRAGMA synchronous = NORMAL');  // safe with WAL, better write perf
+    db.exec('PRAGMA busy_timeout = 5000');
+    db.exec('PRAGMA synchronous = NORMAL');
   }
   return db;
-}
-
-// Purge expired sessions — call periodically (or on startup)
-function purgeExpiredSessions(db) {
-  try {
-    const result = db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date().toISOString());
-    if (result.changes > 0) console.log(`[DB] Purged ${result.changes} expired session(s).`);
-  } catch (e) {
-    console.error('[DB] Session purge error:', e.message);
-  }
 }
 
 function initializeDatabase() {
@@ -47,6 +37,9 @@ function initializeDatabase() {
       sync_status TEXT DEFAULT 'local',
       last_synced_at TEXT,
       source_system TEXT DEFAULT 'local',
+      last_login_at TEXT,
+      login_attempts INTEGER NOT NULL DEFAULT 0,
+      locked_until TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -77,6 +70,12 @@ function initializeDatabase() {
       last_synced_at TEXT,
       source_system TEXT DEFAULT 'local',
       resolved_at TEXT,
+      finalized_at TEXT,
+      finalized_by TEXT REFERENCES users(id),
+      closed_at TEXT,
+      closed_by TEXT REFERENCES users(id),
+      closure_status TEXT CHECK(closure_status IN ('resolved','unresolved','escalated')),
+      final_notes TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -86,6 +85,7 @@ function initializeDatabase() {
       ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL REFERENCES users(id),
       body TEXT NOT NULL,
+      comment_type TEXT NOT NULL DEFAULT 'note',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -136,7 +136,7 @@ function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS integrations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('mlink','enbase','netsuite','fieldaware','email','sms','telephony','twilio','documents')),
+      type TEXT NOT NULL CHECK(type IN ('mlink','enbase','netsuite','fieldaware','email','sms','telephony','documents')),
       environment TEXT NOT NULL DEFAULT 'sandbox',
       enabled INTEGER NOT NULL DEFAULT 0,
       config_json TEXT,
@@ -194,52 +194,39 @@ function initializeDatabase() {
       created_at TEXT NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
-    CREATE INDEX IF NOT EXISTS idx_tickets_assigned ON tickets(assigned_to);
-    CREATE INDEX IF NOT EXISTS idx_tickets_priority ON tickets(priority);
-    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
-    CREATE INDEX IF NOT EXISTS idx_time_entries_ticket ON time_entries(ticket_id);
-    CREATE TABLE IF NOT EXISTS call_sessions (
+    -- Nexus Call Center
+    CREATE TABLE IF NOT EXISTS nexus_calls (
       id TEXT PRIMARY KEY,
-      call_sid TEXT UNIQUE NOT NULL,
-      caller_number TEXT,
-      messages TEXT NOT NULL DEFAULT '[]',
-      ticket_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      duration_seconds INTEGER,
+      call_number TEXT UNIQUE NOT NULL,
+      caller_name TEXT,
+      caller_phone TEXT,
+      caller_company TEXT,
+      subject TEXT NOT NULL,
+      description TEXT,
+      priority TEXT NOT NULL DEFAULT 'P3' CHECK(priority IN ('P1','P2','P3','P4')),
+      status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','active','on-hold','transferred','ended','escalated')),
+      assigned_to TEXT REFERENCES users(id),
+      ticket_id TEXT REFERENCES tickets(id),
+      started_at TEXT NOT NULL,
       ended_at TEXT,
+      duration_seconds INTEGER,
+      notes TEXT,
+      created_by TEXT NOT NULL REFERENCES users(id),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS page_views (
-      id TEXT PRIMARY KEY,
-      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-      username TEXT,
-      path TEXT NOT NULL,
-      method TEXT NOT NULL DEFAULT 'GET',
-      feature TEXT,
-      status_code INTEGER,
-      duration_ms INTEGER,
-      ip TEXT,
-      user_agent TEXT,
-      referrer TEXT,
-      created_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_page_views_user ON page_views(user_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_page_views_path ON page_views(path, created_at);
-    CREATE INDEX IF NOT EXISTS idx_page_views_created ON page_views(created_at);
-
+    -- Community / Feature Requests
     CREATE TABLE IF NOT EXISTS feature_requests (
       id TEXT PRIMARY KEY,
-      user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      user_id TEXT NOT NULL REFERENCES users(id),
       author_name TEXT NOT NULL,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'submitted' CHECK(status IN ('submitted','under-review','planned','in-progress','completed','declined')),
-      priority TEXT DEFAULT NULL,
-      admin_note TEXT,
       upvotes INTEGER NOT NULL DEFAULT 0,
+      priority TEXT,
+      admin_note TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -247,7 +234,7 @@ function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS feature_request_votes (
       id TEXT PRIMARY KEY,
       request_id TEXT NOT NULL REFERENCES feature_requests(id) ON DELETE CASCADE,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id),
       created_at TEXT NOT NULL,
       UNIQUE(request_id, user_id)
     );
@@ -257,176 +244,108 @@ function initializeDatabase() {
       version TEXT,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
-      type TEXT NOT NULL DEFAULT 'feature' CHECK(type IN ('feature','improvement','fix','new')),
+      type TEXT NOT NULL DEFAULT 'feature' CHECK(type IN ('new','feature','improvement','fix')),
       is_published INTEGER NOT NULL DEFAULT 1,
       created_by TEXT REFERENCES users(id),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status, next_retry_at);
-    CREATE INDEX IF NOT EXISTS idx_integration_logs_integration ON integration_logs(integration_id, timestamp);
-    CREATE INDEX IF NOT EXISTS idx_call_sessions_created ON call_sessions(created_at);
-    CREATE INDEX IF NOT EXISTS idx_feature_requests_status ON feature_requests(status, created_at);
-    CREATE INDEX IF NOT EXISTS idx_changelog_created ON changelog(created_at);
+    -- Audit Logs (append-only)
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      actor_id TEXT,
+      actor_name TEXT,
+      action TEXT NOT NULL,
+      resource_type TEXT,
+      resource_id TEXT,
+      old_value TEXT,
+      new_value TEXT,
+      ip TEXT,
+      user_agent TEXT,
+      meta TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    -- Analytics page views
+    CREATE TABLE IF NOT EXISTS page_views (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      username TEXT,
+      path TEXT,
+      method TEXT,
+      feature TEXT,
+      status_code INTEGER,
+      duration_ms INTEGER,
+      ip TEXT,
+      user_agent TEXT,
+      referrer TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    -- Indexes
+    CREATE INDEX IF NOT EXISTS idx_tickets_status     ON tickets(status);
+    CREATE INDEX IF NOT EXISTS idx_tickets_assigned   ON tickets(assigned_to);
+    CREATE INDEX IF NOT EXISTS idx_tickets_priority   ON tickets(priority);
+    CREATE INDEX IF NOT EXISTS idx_tickets_created_by ON tickets(created_by);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
+    CREATE INDEX IF NOT EXISTS idx_time_entries_ticket ON time_entries(ticket_id);
+    CREATE INDEX IF NOT EXISTS idx_sync_queue_status  ON sync_queue(status, next_retry_at);
+    CREATE INDEX IF NOT EXISTS idx_integration_logs   ON integration_logs(integration_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_actor   ON audit_logs(actor_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_action  ON audit_logs(action, created_at);
+    CREATE INDEX IF NOT EXISTS idx_nexus_calls_status ON nexus_calls(status);
+    CREATE INDEX IF NOT EXISTS idx_page_views_path    ON page_views(path, created_at);
   `);
 
+  // Safe schema migrations for existing databases
+  initSecuritySchema(db);
   seedUsers(db);
   seedIntegrations(db);
-  seedChangelog(db);
-  initNexusSchema(db);
-  initSecuritySchema(db);
   purgeExpiredSessions(db);
 }
 
 function initSecuritySchema(db) {
-  // Audit log table — immutable append-only record of all security-relevant events
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS audit_logs (
-      id           TEXT PRIMARY KEY,
-      actor_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
-      actor_name   TEXT,
-      action       TEXT NOT NULL,
-      resource_type TEXT,
-      resource_id  TEXT,
-      old_value    TEXT,
-      new_value    TEXT,
-      ip           TEXT,
-      user_agent   TEXT,
-      meta         TEXT,
-      created_at   TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_audit_logs_actor  ON audit_logs(actor_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action, created_at);
-    CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, resource_id);
-  `);
-
-  // Add account-lockout columns to users (silent if already present)
-  const lockoutCols = [
-    'ALTER TABLE users ADD COLUMN last_login_at TEXT',
-    'ALTER TABLE users ADD COLUMN login_attempts INTEGER NOT NULL DEFAULT 0',
-    'ALTER TABLE users ADD COLUMN locked_until TEXT',
+  // Add columns that may not exist in older databases (safe ALTER TABLE)
+  const ticketCols = db.prepare("PRAGMA table_info(tickets)").all().map(r => r.name);
+  const migrations = [
+    ['finalized_at',    'ALTER TABLE tickets ADD COLUMN finalized_at TEXT'],
+    ['finalized_by',    'ALTER TABLE tickets ADD COLUMN finalized_by TEXT'],
+    ['closed_at',       'ALTER TABLE tickets ADD COLUMN closed_at TEXT'],
+    ['closed_by',       'ALTER TABLE tickets ADD COLUMN closed_by TEXT'],
+    ['closure_status',  'ALTER TABLE tickets ADD COLUMN closure_status TEXT'],
+    ['final_notes',     'ALTER TABLE tickets ADD COLUMN final_notes TEXT'],
   ];
-  for (const sql of lockoutCols) {
-    try { db.exec(sql); } catch (_) {}
+  for (const [col, sql] of migrations) {
+    if (!ticketCols.includes(col)) {
+      try { db.exec(sql); } catch (_) {}
+    }
   }
 
-  // Add encrypted sensitive-notes column to tickets (for private internal notes)
-  try { db.exec('ALTER TABLE tickets ADD COLUMN encrypted_notes TEXT'); } catch (_) {}
-
-  // Add access_level to ticket_attachments (for future sensitive-doc controls)
-  try { db.exec("ALTER TABLE ticket_attachments ADD COLUMN access_level TEXT NOT NULL DEFAULT 'standard'"); } catch (_) {}
-}
-
-function initNexusSchema(db) {
-  // ALTER TABLE tickets — wrapped individually so they fail silently if column exists
-  const alterCols = [
-    'ALTER TABLE tickets ADD COLUMN call_event_id TEXT',
-    'ALTER TABLE tickets ADD COLUMN call_source TEXT',
-    'ALTER TABLE tickets ADD COLUMN caller_name TEXT',
-    'ALTER TABLE tickets ADD COLUMN caller_phone TEXT',
-    'ALTER TABLE tickets ADD COLUMN unit_number TEXT',
-    'ALTER TABLE tickets ADD COLUMN site TEXT',
-    'ALTER TABLE tickets ADD COLUMN repeat_issue_flag INTEGER DEFAULT 0',
-    'ALTER TABLE tickets ADD COLUMN previous_ticket_id TEXT',
-    'ALTER TABLE tickets ADD COLUMN call_transcript TEXT',
-    'ALTER TABLE tickets ADD COLUMN escalation_level INTEGER DEFAULT 0',
-    "ALTER TABLE tickets ADD COLUMN assigned_via TEXT DEFAULT 'manual'",
+  // Add lockout columns to users if missing
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(r => r.name);
+  const userMigrations = [
+    ['last_login_at',   'ALTER TABLE users ADD COLUMN last_login_at TEXT'],
+    ['login_attempts',  'ALTER TABLE users ADD COLUMN login_attempts INTEGER NOT NULL DEFAULT 0'],
+    ['locked_until',    'ALTER TABLE users ADD COLUMN locked_until TEXT'],
   ];
-  for (const sql of alterCols) {
-    try { db.exec(sql); } catch (_) { /* column already exists */ }
+  for (const [col, sql] of userMigrations) {
+    if (!userCols.includes(col)) {
+      try { db.exec(sql); } catch (_) {}
+    }
   }
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS call_events (
-      id TEXT PRIMARY KEY,
-      caller_phone TEXT,
-      caller_name TEXT,
-      unit_number TEXT,
-      site TEXT,
-      issue_summary TEXT,
-      status TEXT DEFAULT 'active' CHECK(status IN ('active','on-hold','escalating','connected','completed','abandoned')),
-      assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-      answered_by TEXT,
-      escalation_path TEXT DEFAULT '[]',
-      duration_seconds INTEGER,
-      linked_ticket_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
-      transcript TEXT,
-      source TEXT DEFAULT 'manual' CHECK(source IN ('manual','twilio','ai','inbound')),
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS escalation_list (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      priority_order INTEGER NOT NULL DEFAULT 0,
-      availability TEXT NOT NULL DEFAULT 'on-shift' CHECK(availability IN ('on-shift','on-call','unavailable','out-of-service')),
-      phone TEXT,
-      notes TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      UNIQUE(user_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS call_attempts (
-      id TEXT PRIMARY KEY,
-      call_event_id TEXT NOT NULL REFERENCES call_events(id) ON DELETE CASCADE,
-      user_id TEXT NOT NULL REFERENCES users(id),
-      attempted_at TEXT NOT NULL,
-      result TEXT DEFAULT 'no-answer' CHECK(result IN ('answered','no-answer','busy','declined','voicemail')),
-      notes TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS tech_schedule (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      date TEXT NOT NULL,
-      shift_start TEXT,
-      shift_end TEXT,
-      on_call INTEGER DEFAULT 0,
-      notes TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      UNIQUE(user_id, date)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_call_events_status ON call_events(status, created_at);
-    CREATE INDEX IF NOT EXISTS idx_escalation_list_order ON escalation_list(priority_order);
-  `);
-
-  seedEscalationList(db);
-}
-
-function seedEscalationList(db) {
-  const count = db.prepare('SELECT COUNT(*) as c FROM escalation_list').get().c;
-  if (count > 0) return;
-  const techs = db.prepare("SELECT id FROM users WHERE role='tech' ORDER BY created_at").all();
-  const now = new Date().toISOString();
-  techs.forEach((u, i) => {
-    db.prepare('INSERT OR IGNORE INTO escalation_list (id, user_id, priority_order, availability, created_at, updated_at) VALUES (?,?,?,?,?,?)')
-      .run(uuidv4(), u.id, i, 'on-shift', now, now);
-  });
-}
-
-function seedChangelog(db) {
-  const count = db.prepare('SELECT COUNT(*) as c FROM changelog').get().c;
-  if (count > 0) return; // already seeded
-  const now = new Date().toISOString();
-  const entries = [
-    { title: 'Fleet Monitor', description: 'Live SCADA-style monitoring for all field units — Panel, Compressor A, and Compressor B. View real-time sensor readings, alarm highlights, and 24h trend charts for every data point. Click any reading to see sparkline history.', type: 'new' },
-    { title: 'AI-Powered Work Order Assistant', description: 'New work orders now include AI category suggestion and priority recommendation buttons. Describe the issue and let AI pre-fill the category and priority for you.', type: 'feature' },
-    { title: 'Automated Phone Answering', description: 'Incoming tech service calls are now answered by an AI assistant that collects issue details and automatically creates a work order. High-priority calls trigger instant SMS alerts to technicians.', type: 'new' },
-    { title: 'Time Tracking', description: 'Technicians can clock in and out per work order directly from the ticket detail page. Total hours are tracked per ticket and per technician.', type: 'feature' },
-    { title: 'Work Order History Timeline', description: 'Every status change, assignment, and update on a work order is recorded in a timeline so you can see exactly what happened and when.', type: 'improvement' },
-    { title: 'Photo Attachments', description: 'Attach photos directly to work orders from the field. Supports JPEG, PNG, and other image formats.', type: 'feature' },
-    { title: 'Notifications', description: 'Real-time in-app notifications when work orders are assigned to you, comments are added, or status changes.', type: 'feature' },
-    { title: 'SLA Tracking', description: 'Work orders now show SLA status — on track, at risk, or breached — based on priority. P1 = 4 hours, P2 = 24 hours, P3 = 72 hours, P4 = 168 hours.', type: 'improvement' },
-  ];
-  const insert = db.prepare(`INSERT OR IGNORE INTO changelog (id, title, description, type, is_published, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)`);
-  for (const e of entries) {
-    insert.run(uuidv4(), e.title, e.description, e.type, now, now);
+  // Add comment_type if missing
+  const commentCols = db.prepare("PRAGMA table_info(ticket_comments)").all().map(r => r.name);
+  if (!commentCols.includes('comment_type')) {
+    try { db.exec("ALTER TABLE ticket_comments ADD COLUMN comment_type TEXT NOT NULL DEFAULT 'note'"); } catch (_) {}
   }
+}
+
+function purgeExpiredSessions(db) {
+  try {
+    db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date().toISOString());
+  } catch (_) {}
 }
 
 function seedUsers(db) {
@@ -439,18 +358,13 @@ function seedUsers(db) {
   ];
 
   for (const u of users) {
-    const existing = db.prepare('SELECT id, password_hash FROM users WHERE username = ?').get(u.username);
-    // Use 10 rounds — fast enough for serverless cold starts, still secure
-    const hash = bcrypt.hashSync(u.password, 10);
+    const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(u.username);
     if (!existing) {
+      const hash = bcrypt.hashSync(u.password, 12);
       db.prepare(`
-        INSERT INTO users (id, username, email, password_hash, name, role, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO users (id, username, email, password_hash, name, role, login_attempts, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
       `).run(uuidv4(), u.username, u.email, hash, u.name, u.role, now, now);
-    } else {
-      // Always sync password hash so env var changes take effect on redeploy
-      db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE username = ?')
-        .run(hash, now, u.username);
     }
   }
 }
@@ -462,7 +376,8 @@ function seedIntegrations(db) {
       name: 'FW Murphy MLink',
       type: 'mlink',
       config_json: JSON.stringify({
-        base_url: process.env.MLINK_API_URL || 'https://mlink-datastore.up.railway.app',
+        base_url: process.env.MLINK_API_URL || 'https://api.fwmurphy-iot.com/api',
+        device_ids: ['2504-504495', '2504-505561', '2504-505472'],
         sync_objects: ['telemetry', 'devices'],
         poll_interval_minutes: 5
       })
@@ -471,8 +386,8 @@ function seedIntegrations(db) {
       name: 'Detechtion Enbase',
       type: 'enbase',
       config_json: JSON.stringify({
-        base_url: process.env.ENBASE_API_URL || 'https://api.detechtion.com/enbase',
-        sync_objects: ['compression_data', 'alarms'],
+        base_url: process.env.ENBASE_API_URL || 'https://api.detechtion.com/enbase/api',
+        sync_objects: ['assets', 'alarms', 'devices', 'measurements', 'customers', 'locations', 'downtime_events'],
         poll_interval_minutes: 10
       })
     },
@@ -491,33 +406,20 @@ function seedIntegrations(db) {
         sync_objects: ['jobs', 'technicians', 'labor_hours', 'parts'],
         note: 'Stub — configure API key in credentials'
       })
-    },
-    {
-      name: 'Twilio Voice & SMS',
-      type: 'telephony',
-      config_json: JSON.stringify({
-        greeting: 'Thank you for calling Tech Services.',
-        company_name: 'Tech Services',
-        from_number: '',
-        tech_sms_numbers: [
-          { name: 'Austin Whitehurst', phone: '' },
-          { name: 'Clint Webb', phone: '' }
-        ],
-        webhook_base_url: 'https://tech-service-portal.vercel.app',
-        note: 'Add account_sid, auth_token, from_number in credentials. Set tech cell numbers above.'
-      })
     }
   ];
-
-  const insert = db.prepare(`
-    INSERT OR IGNORE INTO integrations (id, name, type, environment, enabled, config_json, created_at, updated_at)
-    VALUES (?, ?, ?, 'sandbox', 0, ?, ?, ?)
-  `);
 
   for (const i of integrations) {
     const existing = db.prepare('SELECT id FROM integrations WHERE type = ?').get(i.type);
     if (!existing) {
-      insert.run(uuidv4(), i.name, i.type, i.config_json, now, now);
+      db.prepare(`
+        INSERT OR IGNORE INTO integrations (id, name, type, environment, enabled, config_json, created_at, updated_at)
+        VALUES (?, ?, ?, 'production', 1, ?, ?, ?)
+      `).run(uuidv4(), i.name, i.type, i.config_json, now, now);
+    } else {
+      // Always sync config so base_url / device_ids stay current
+      db.prepare('UPDATE integrations SET config_json=?, enabled=1, environment=\'production\', updated_at=? WHERE id=?')
+        .run(i.config_json, now, existing.id);
     }
   }
 }
@@ -530,4 +432,12 @@ function nextTicketNumber(db) {
   return 'TKT-' + String(num + 1).padStart(4, '0');
 }
 
-module.exports = { getDb, initializeDatabase, nextTicketNumber, purgeExpiredSessions };
+// Call number: CALL-NNNN
+function nextCallNumber(db) {
+  const row = db.prepare("SELECT call_number FROM nexus_calls ORDER BY call_number DESC LIMIT 1").get();
+  if (!row) return 'CALL-0001';
+  const num = parseInt(row.call_number.replace('CALL-', ''), 10);
+  return 'CALL-' + String(num + 1).padStart(4, '0');
+}
+
+module.exports = { getDb, initializeDatabase, nextTicketNumber, nextCallNumber, purgeExpiredSessions };

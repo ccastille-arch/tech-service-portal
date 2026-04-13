@@ -3,12 +3,11 @@ require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
-const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { getDb, initializeDatabase } = require('./database');
 const { validateSecretsOnStartup, getSecret } = require('./services/secrets');
 
-// Validate secrets and warn about insecure defaults before anything else
+// Validate secrets before anything else
 validateSecretsOnStartup();
 
 // Initialize DB on startup
@@ -23,13 +22,12 @@ app.set('trust proxy', 1);
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '../views'));
 
-// Static files — public assets served openly, but uploads require authentication
-app.use('/public/css',  express.static(path.join(__dirname, '../public/css')));
-app.use('/public/js',   express.static(path.join(__dirname, '../public/js')));
-app.use('/public/img',  express.static(path.join(__dirname, '../public/img')));
-// Uploads gated behind auth — handled after session middleware below
+// Static files — CSS/JS/img served openly; uploads are served via /tickets/files/:id (auth-gated)
+app.use('/public/css', express.static(path.join(__dirname, '../public/css')));
+app.use('/public/js',  express.static(path.join(__dirname, '../public/js')));
+app.use('/public/img', express.static(path.join(__dirname, '../public/img')));
 
-// Body parsing — tight limits for all non-upload routes (uploads handled by multer separately)
+// Body parsing — tight limits
 app.use(express.urlencoded({ extended: true, limit: '200kb' }));
 app.use(express.json({ limit: '200kb' }));
 
@@ -37,7 +35,7 @@ app.use(express.json({ limit: '200kb' }));
 class DbSessionStore extends session.Store {
   get(sid, cb) {
     try {
-      const db = getDb();
+      const db  = getDb();
       const row = db.prepare('SELECT data, expires_at FROM sessions WHERE id = ?').get(sid);
       if (!row) return cb(null, null);
       if (new Date(row.expires_at) < new Date()) {
@@ -47,31 +45,23 @@ class DbSessionStore extends session.Store {
       cb(null, JSON.parse(row.data));
     } catch (e) { cb(e); }
   }
-
   set(sid, sess, cb) {
     try {
-      const db = getDb();
+      const db      = getDb();
       const expires = new Date(Date.now() + (sess.cookie?.maxAge || 86400000)).toISOString();
       db.prepare('INSERT OR REPLACE INTO sessions (id, data, expires_at) VALUES (?, ?, ?)').run(sid, JSON.stringify(sess), expires);
       cb(null);
     } catch (e) { cb(e); }
   }
-
   destroy(sid, cb) {
-    try {
-      getDb().prepare('DELETE FROM sessions WHERE id = ?').run(sid);
-      cb(null);
-    } catch (e) { cb(e); }
+    try { getDb().prepare('DELETE FROM sessions WHERE id = ?').run(sid); cb(null); } catch (e) { cb(e); }
   }
-
-  touch(sid, sess, cb) {
-    this.set(sid, sess, cb);
-  }
+  touch(sid, sess, cb) { this.set(sid, sess, cb); }
 }
 
 app.use(session({
   store: new DbSessionStore(),
-  secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
+  secret: getSecret('SESSION_SECRET', 'dev-secret-change-me'),
   resave: false,
   saveUninitialized: false,
   rolling: true,
@@ -80,7 +70,7 @@ app.use(session({
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 24 * 60 * 60 * 1000
   }
 }));
 
@@ -98,11 +88,9 @@ app.use((req, res, next) => {
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
-  // HSTS — enforce TLS for 1 year in production
   if (process.env.NODE_ENV === 'production') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
-  // Content Security Policy — restrict resource origins
   res.setHeader('Content-Security-Policy', [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
@@ -117,23 +105,21 @@ app.use((req, res, next) => {
   next();
 });
 
-// Flash messages via session
+// Flash messages
 app.use((req, res, next) => {
   res.locals.flash = req.session.flash || {};
   delete req.session.flash;
   next();
 });
 
-// ── SSO token auto-login ──────────────────────────────────────────────────────
-// When SSO portal redirects here with ?sso_token=<jwt>, validate and create session
+// SSO token auto-login
 app.use((req, res, next) => {
   const token = req.query.sso_token;
   if (!token) return next();
   try {
-    const jwt = require('jsonwebtoken');
-    const secret = getSecret('SESSION_SECRET', 'dev-secret-change-me');
+    const jwt     = require('jsonwebtoken');
+    const secret  = getSecret('SESSION_SECRET', 'dev-secret-change-me');
     const payload = jwt.verify(token, secret);
-    // Create session from SSO payload
     req.session.user = {
       id:       payload.sub,
       username: payload.username || payload.email?.split('@')[0] || 'user',
@@ -141,22 +127,18 @@ app.use((req, res, next) => {
       email:    payload.email,
       role:     payload.role || 'tech'
     };
-    // Strip token from URL and redirect clean
     const clean = req.path + (Object.keys(req.query).filter(k => k !== 'sso_token').length
       ? '?' + new URLSearchParams(Object.fromEntries(Object.entries(req.query).filter(([k]) => k !== 'sso_token'))).toString()
       : '');
     return req.session.save(() => res.redirect(clean || '/dashboard'));
-  } catch (e) {
-    // Invalid/expired token — fall through to normal login
-    return next();
-  }
+  } catch (_) { return next(); }
 });
 
-// ── Analytics tracking ────────────────────────────────────────────────────────
+// Analytics
 const { analyticsMiddleware } = require('./middleware/analytics');
 app.use(analyticsMiddleware);
 
-// Voice webhooks — exempt from CSRF (Twilio posts here without tokens)
+// Voice webhooks — exempt from CSRF (Twilio posts without tokens)
 const voiceRoutes = require('./routes/voice');
 app.use('/voice', voiceRoutes);
 
@@ -165,43 +147,40 @@ const { csrfMiddleware } = require('./middleware/csrf');
 app.use(csrfMiddleware);
 
 // Routes
-const authRoutes = require('./routes/auth');
-const dashboardRoutes = require('./routes/dashboard');
-const ticketRoutes = require('./routes/tickets');
-const timeRoutes = require('./routes/timetracking');
-const notifRoutes = require('./routes/notifications');
-const reportsRoutes = require('./routes/reports');
-const aiRoutes = require('./routes/ai');
+const authRoutes        = require('./routes/auth');
+const dashboardRoutes   = require('./routes/dashboard');
+const ticketRoutes      = require('./routes/tickets');
+const notifRoutes       = require('./routes/notifications');
+const reportsRoutes     = require('./routes/reports');
+const aiRoutes          = require('./routes/ai');
 const integrationRoutes = require('./routes/integrations');
-const syncRoutes = require('./routes/sync');
-const fleetRoutes = require('./routes/fleet');
-const adminRoutes = require('./routes/admin');
-const communityRoutes = require('./routes/community');
+const syncRoutes        = require('./routes/sync');
+const fleetRoutes       = require('./routes/fleet');
+const adminRoutes       = require('./routes/admin');
+const communityRoutes   = require('./routes/community');
+const nexusCallsRoutes  = require('./routes/nexus-calls');
 
-// Auth-gated upload file serving
-const { requireAuth: _requireAuth } = require('./middleware/authenticate');
-app.use('/public/uploads', _requireAuth, express.static(path.join(__dirname, '../public/uploads')));
-
-app.use('/login', authLimiter);
-app.use('/admin', adminLimiter);
-app.use('/nexus/calls/create', nexusLimiter);
-app.use('/', authRoutes);
-app.use('/', dashboardRoutes);
-app.use('/tickets', ticketRoutes);
-app.use('/notifications', notifRoutes);
 const { requireAdmin: _requireAdmin } = require('./middleware/authenticate');
-app.use('/reports', _requireAdmin, reportsRoutes);
-app.use('/api/reports', _requireAdmin, reportsRoutes);
-app.use('/api/ai', aiRoutes);
+
+app.use('/login',              authLimiter);
+app.use('/admin',              adminLimiter);
+app.use('/nexus/calls/create', nexusLimiter);
+
+app.use('/',             authRoutes);
+app.use('/',             dashboardRoutes);
+app.use('/tickets',      ticketRoutes);       // /tickets/files/:id is secure file serving
+app.use('/notifications', notifRoutes);
+app.use('/reports',      _requireAdmin, reportsRoutes);
+app.use('/api/reports',  _requireAdmin, reportsRoutes);
+app.use('/api/ai',       aiRoutes);
 app.use('/integrations', integrationRoutes);
-app.use('/sync', syncRoutes);
-app.use('/calls', voiceRoutes);
-app.use('/fleet', fleetRoutes);
-const nexusCallsRoutes = require('./routes/nexus-calls');
-app.use('/nexus', nexusCallsRoutes);
-app.use('/admin', adminRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/', communityRoutes);
+app.use('/sync',         syncRoutes);
+app.use('/fleet',        fleetRoutes);
+app.use('/nexus',        nexusCallsRoutes);
+app.use('/calls',        voiceRoutes);
+app.use('/admin',        adminRoutes);
+app.use('/api/admin',    adminRoutes);
+app.use('/',             communityRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
@@ -227,7 +206,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Local dev server
 if (require.main === module) {
   const PORT = process.env.PORT || 3001;
   app.listen(PORT, () => console.log(`Tech Service Portal running on http://localhost:${PORT}`));

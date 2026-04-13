@@ -1,350 +1,155 @@
 'use strict';
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
-const { getDb, nextTicketNumber } = require('../database');
+const { getDb, nextCallNumber } = require('../database');
 const { requireAuth, requireAdmin } = require('../middleware/authenticate');
-const callService = require('../services/call-service');
-const { logAudit, actorFromReq, AUDIT_ACTIONS } = require('../services/audit');
-const { sanitizeString, validatePriority, validateCategory, validateDate } = require('../middleware/validate');
-
+const { ticketScopeClause } = require('../middleware/authorize');
+const { sanitizeString, validatePriority, validateSortCol } = require('../middleware/validate');
+const { logAudit, AUDIT_ACTIONS, actorFromReq } = require('../services/audit');
 const router = express.Router();
 
-// Nexus audit actions (extend base set)
-const NX = {
-  CALL_CREATED:   'nexus.call.created',
-  CALL_ASSIGNED:  'nexus.call.assigned',
-  CALL_ESCALATED: 'nexus.call.escalated',
-  CALL_ENDED:     'nexus.call.ended',
-  TICKET_CREATED: 'nexus.ticket.created',
-};
+const ALLOWED_CALL_STATUSES = ['queued','active','on-hold','transferred','ended','escalated'];
+const ALLOWED_AVAILABILITY  = ['on-shift','on-call','unavailable','out-of-service'];
 
-// ─── Call Dashboard ────────────────────────────────────────────────────────────
-
+// ── Call list / dashboard ─────────────────────────────────────────────────────
 router.get('/calls', requireAuth, (req, res) => {
-  const db = getDb();
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
+  const db   = getDb();
+  const user = req.session.user;
 
-  const activeCalls = db.prepare(`
-    SELECT ce.*, u.name as assigned_name FROM call_events ce
-    LEFT JOIN users u ON u.id = ce.assigned_user_id WHERE ce.status = 'active' ORDER BY ce.created_at ASC
-  `).all();
-  const onHoldCalls = db.prepare(`
-    SELECT ce.*, u.name as assigned_name FROM call_events ce
-    LEFT JOIN users u ON u.id = ce.assigned_user_id WHERE ce.status = 'on-hold' ORDER BY ce.created_at ASC
-  `).all();
-  const escalatingCalls = db.prepare(`
-    SELECT ce.*, u.name as assigned_name FROM call_events ce
-    LEFT JOIN users u ON u.id = ce.assigned_user_id WHERE ce.status = 'escalating' ORDER BY ce.created_at ASC
-  `).all();
-  const completedToday = db.prepare(`
-    SELECT ce.*, u.name as assigned_name FROM call_events ce
-    LEFT JOIN users u ON u.id = ce.assigned_user_id
-    WHERE ce.status = 'completed' AND ce.updated_at >= ? ORDER BY ce.updated_at DESC LIMIT 10
-  `).all(todayStart.toISOString());
-  const escalationList = db.prepare(`
-    SELECT el.*, u.name, u.email, u.role FROM escalation_list el
-    JOIN users u ON u.id = el.user_id ORDER BY el.priority_order ASC
-  `).all();
+  let sql = `
+    SELECT nc.*, u.name as assigned_name, t.ticket_number
+    FROM nexus_calls nc
+    LEFT JOIN users u ON u.id = nc.assigned_to
+    LEFT JOIN tickets t ON t.id = nc.ticket_id
+    WHERE 1=1
+  `;
+  const params = [];
+
+  // Techs only see calls assigned to them or created by them
+  if (user.role !== 'admin') {
+    sql += ' AND (nc.assigned_to = ? OR nc.created_by = ?)';
+    params.push(user.id, user.id);
+  }
+
+  sql += ' ORDER BY nc.created_at DESC LIMIT 100';
+
+  const calls = db.prepare(sql).all(...params);
   const techs = db.prepare("SELECT id, name FROM users WHERE role IN ('admin','tech') ORDER BY name").all();
 
-  res.render('call-dashboard', {
-    title: 'Call Operations Center',
-    activeCalls, onHoldCalls, escalatingCalls, completedToday, escalationList, techs,
-    user: req.session.user, unreadCount: res.locals.unreadCount, csrfToken: res.locals.csrfToken
+  res.render('nexus-calls', {
+    title: 'Nexus Call Center',
+    calls, techs,
+    user, unreadCount: res.locals.unreadCount,
+    csrfToken: res.locals.csrfToken
   });
 });
 
-// ─── Create new call event ─────────────────────────────────────────────────────
-
+// ── Create call ───────────────────────────────────────────────────────────────
 router.post('/calls/create', requireAuth, (req, res) => {
-  try {
-    // Sanitize all inputs
-    const callerPhone   = sanitizeString(req.body.callerPhone, 30);
-    const callerName    = sanitizeString(req.body.callerName, 100);
-    const unitNumber    = sanitizeString(req.body.unitNumber, 100);
-    const site          = sanitizeString(req.body.site, 200);
-    const issueSummary  = sanitizeString(req.body.issueSummary, 1000);
-    const priority      = validatePriority(req.body.priority) || 'P3';
-    const category      = validateCategory(req.body.category) || 'general';
-    const createTicket  = req.body.createTicket === 'true' || req.body.createTicket === '1';
+  const db           = getDb();
+  const user         = req.session.user;
+  const subject      = sanitizeString(req.body.subject, 200);
+  const description  = sanitizeString(req.body.description, 2000);
+  const caller_name  = sanitizeString(req.body.caller_name, 100);
+  const caller_phone = sanitizeString(req.body.caller_phone, 30);
+  const caller_company = sanitizeString(req.body.caller_company, 100);
+  const priority     = validatePriority(req.body.priority);
+  const assigned_to  = req.body.assigned_to || null;
 
-    const callEvent = callService.createCallEvent({ callerPhone, callerName, unitNumber, site, issueSummary, source: 'manual' });
-
-    logAudit(getDb(), {
-      ...actorFromReq(req),
-      action: NX.CALL_CREATED,
-      resource_type: 'call_event', resource_id: callEvent.id,
-      new_value: `unit=${unitNumber || 'unknown'} site=${site || 'unknown'}`,
-    });
-
-    let ticket = null;
-    let repeatIssue = null;
-
-    if (createTicket) {
-      const db = getDb();
-      const now          = new Date().toISOString();
-      const ticketId     = uuidv4();
-      const ticketNumber = nextTicketNumber(db);
-      const dueDate      = new Date(Date.now() + 24 * 3600000).toISOString().slice(0, 10);
-
-      repeatIssue = callService.checkRepeatIssue(unitNumber, ticketId);
-      const transcript = callService.generateSimulatedTranscript(callerName, unitNumber, issueSummary);
-
-      db.prepare(`
-        INSERT INTO tickets (
-          id, ticket_number, title, description, priority, category, status,
-          created_by, location, well_site, due_date,
-          call_event_id, call_source, caller_name, caller_phone,
-          unit_number, site, call_transcript,
-          repeat_issue_flag, previous_ticket_id,
-          assigned_via, created_at, updated_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-      `).run(
-        ticketId, ticketNumber,
-        issueSummary ? issueSummary.slice(0, 80) : 'Inbound Call Issue',
-        issueSummary || '',
-        priority, category, 'open',
-        req.session.user.id,
-        site, site, dueDate,
-        callEvent.id, 'manual',
-        callerName, callerPhone,
-        unitNumber, site, transcript,
-        repeatIssue ? 1 : 0,
-        repeatIssue ? repeatIssue.id : null,
-        'manual', now, now
-      );
-      callService.linkTicket(callEvent.id, ticketId);
-      logAudit(db, {
-        ...actorFromReq(req),
-        action: NX.TICKET_CREATED,
-        resource_type: 'ticket', resource_id: ticketId,
-        new_value: `${ticketNumber} from call ${callEvent.id}`,
-      });
-      ticket = { id: ticketId, ticket_number: ticketNumber };
-    } else {
-      repeatIssue = callService.checkRepeatIssue(unitNumber, null);
-    }
-
-    return res.json({ ok: true, callEvent, ticket, repeatIssue });
-  } catch (err) {
-    console.error('[nexus/calls/create]', err.message);
-    return res.status(500).json({ ok: false, error: 'Failed to create call event.' });
+  if (!subject) {
+    req.session.flash = { error: 'Subject is required.' };
+    return res.redirect('/nexus/calls');
   }
+
+  const now         = new Date().toISOString();
+  const id          = uuidv4();
+  const call_number = nextCallNumber(db);
+
+  db.prepare(`
+    INSERT INTO nexus_calls (id, call_number, caller_name, caller_phone, caller_company, subject, description, priority, status, assigned_to, started_at, created_by, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,'queued',?,?,?,?,?)
+  `).run(id, call_number, caller_name || null, caller_phone || null, caller_company || null, subject, description || null, priority, assigned_to, now, user.id, now, now);
+
+  logAudit(db, { ...actorFromReq(req), action: AUDIT_ACTIONS.CALL_CREATED, resource_type: 'nexus_call', resource_id: id, new_value: call_number });
+
+  req.session.flash = { success: `Call ${call_number} created.` };
+  res.redirect('/nexus/calls');
 });
 
-// ─── Assign call ──────────────────────────────────────────────────────────────
-
+// ── Assign call ───────────────────────────────────────────────────────────────
 router.post('/calls/:id/assign', requireAuth, (req, res) => {
-  try {
-    const callId = sanitizeString(req.params.id, 36);
-    const userId = sanitizeString(req.body.userId, 36);
-    if (!userId) return res.status(400).json({ ok: false, error: 'userId required' });
-    const event = callService.assignCall(callId, userId);
-    if (!event) return res.status(404).json({ ok: false, error: 'Call event not found' });
-    logAudit(getDb(), { ...actorFromReq(req), action: NX.CALL_ASSIGNED, resource_type: 'call_event', resource_id: callId, new_value: `assigned to userId=${userId}` });
-    return res.json({ ok: true, callEvent: event });
-  } catch (err) {
-    console.error('[nexus/calls/assign]', err.message);
-    return res.status(500).json({ ok: false, error: 'Failed to assign call.' });
-  }
+  const db          = getDb();
+  const call        = db.prepare('SELECT * FROM nexus_calls WHERE id=?').get(req.params.id);
+  if (!call) return res.redirect('/nexus/calls');
+
+  const assigned_to = req.body.assigned_to || null;
+  const now         = new Date().toISOString();
+  db.prepare('UPDATE nexus_calls SET assigned_to=?, status=?, updated_at=? WHERE id=?')
+    .run(assigned_to, 'active', now, call.id);
+
+  logAudit(db, { ...actorFromReq(req), action: AUDIT_ACTIONS.CALL_ASSIGNED, resource_type: 'nexus_call', resource_id: call.id });
+  req.session.flash = { success: 'Call assigned.' };
+  res.redirect('/nexus/calls');
 });
 
-// ─── Escalate call ────────────────────────────────────────────────────────────
-
-router.post('/calls/:id/escalate', requireAuth, (req, res) => {
-  try {
-    const callId = sanitizeString(req.params.id, 36);
-    const result = callService.escalateCall(callId);
-    if (!result) return res.status(404).json({ ok: false, error: 'Call event not found' });
-    logAudit(getDb(), { ...actorFromReq(req), action: NX.CALL_ESCALATED, resource_type: 'call_event', resource_id: callId });
-    return res.json({ ok: true, ...result });
-  } catch (err) {
-    console.error('[nexus/calls/escalate]', err.message);
-    return res.status(500).json({ ok: false, error: 'Failed to escalate call.' });
-  }
-});
-
-// ─── End call ─────────────────────────────────────────────────────────────────
-
+// ── End call ──────────────────────────────────────────────────────────────────
 router.post('/calls/:id/end', requireAuth, (req, res) => {
-  try {
-    const callId  = sanitizeString(req.params.id, 36);
-    const duration = Math.max(0, Math.min(parseInt(req.body.durationSeconds) || 0, 86400)); // cap at 24h
-    const transcript = sanitizeString(req.body.transcript, 5000);
-    const event = callService.endCall(callId, duration, transcript);
-    if (!event) return res.status(404).json({ ok: false, error: 'Call event not found' });
-    logAudit(getDb(), { ...actorFromReq(req), action: NX.CALL_ENDED, resource_type: 'call_event', resource_id: callId, new_value: `duration=${duration}s` });
-    return res.json({ ok: true, callEvent: event });
-  } catch (err) {
-    console.error('[nexus/calls/end]', err.message);
-    return res.status(500).json({ ok: false, error: 'Failed to end call.' });
-  }
+  const db   = getDb();
+  const call = db.prepare('SELECT * FROM nexus_calls WHERE id=?').get(req.params.id);
+  if (!call) return res.redirect('/nexus/calls');
+
+  const notes   = sanitizeString(req.body.notes, 2000);
+  const rawSecs = parseInt(req.body.durationSeconds) || 0;
+  const duration = Math.max(0, Math.min(rawSecs, 86400));
+  const now     = new Date().toISOString();
+
+  db.prepare('UPDATE nexus_calls SET status=?, ended_at=?, duration_seconds=?, notes=?, updated_at=? WHERE id=?')
+    .run('ended', now, duration || null, notes || null, now, call.id);
+
+  logAudit(db, { ...actorFromReq(req), action: AUDIT_ACTIONS.CALL_ENDED, resource_type: 'nexus_call', resource_id: call.id, new_value: `${duration}s` });
+  req.session.flash = { success: 'Call ended.' };
+  res.redirect('/nexus/calls');
 });
 
-// ─── Create ticket from existing call ────────────────────────────────────────
+// ── Escalate call ─────────────────────────────────────────────────────────────
+router.post('/calls/:id/escalate', requireAuth, (req, res) => {
+  const db   = getDb();
+  const call = db.prepare('SELECT * FROM nexus_calls WHERE id=?').get(req.params.id);
+  if (!call) return res.redirect('/nexus/calls');
 
-router.post('/calls/:id/create-ticket', requireAuth, (req, res) => {
-  try {
-    const db       = getDb();
-    const callId   = sanitizeString(req.params.id, 36);
-    const callEvent = db.prepare('SELECT * FROM call_events WHERE id=?').get(callId);
-    if (!callEvent) return res.status(404).json({ ok: false, error: 'Call event not found' });
-
-    const title       = sanitizeString(req.body.title, 300)       || callEvent.issue_summary || 'Call Issue';
-    const description = sanitizeString(req.body.description, 5000) || callEvent.issue_summary || '';
-    const priority    = validatePriority(req.body.priority)   || 'P3';
-    const category    = validateCategory(req.body.category)   || 'general';
-    const assignedTo  = sanitizeString(req.body.assignedTo, 36) || null;
-
-    const now          = new Date().toISOString();
-    const ticketId     = uuidv4();
-    const ticketNumber = nextTicketNumber(db);
-    const dueDate      = new Date(Date.now() + 24 * 3600000).toISOString().slice(0, 10);
-    const repeatIssue  = callService.checkRepeatIssue(callEvent.unit_number, ticketId);
-    const transcript   = callEvent.transcript || callService.generateSimulatedTranscript(callEvent.caller_name, callEvent.unit_number, callEvent.issue_summary);
-
-    db.prepare(`
-      INSERT INTO tickets (
-        id, ticket_number, title, description, priority, category, status,
-        assigned_to, created_by, location, well_site, due_date,
-        call_event_id, call_source, caller_name, caller_phone,
-        unit_number, site, call_transcript,
-        repeat_issue_flag, previous_ticket_id,
-        assigned_via, created_at, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run(
-      ticketId, ticketNumber, title, description, priority, category, 'open',
-      assignedTo, req.session.user.id,
-      callEvent.site, callEvent.site, dueDate,
-      callEvent.id, callEvent.source || 'manual',
-      callEvent.caller_name, callEvent.caller_phone,
-      callEvent.unit_number, callEvent.site, transcript,
-      repeatIssue ? 1 : 0, repeatIssue ? repeatIssue.id : null,
-      'manual', now, now
-    );
-    callService.linkTicket(callEvent.id, ticketId);
-    logAudit(db, { ...actorFromReq(req), action: NX.TICKET_CREATED, resource_type: 'ticket', resource_id: ticketId, new_value: `${ticketNumber} from call ${callEvent.id}` });
-
-    return res.json({ ok: true, ticketId, ticketNumber });
-  } catch (err) {
-    console.error('[nexus/calls/create-ticket]', err.message);
-    return res.status(500).json({ ok: false, error: 'Failed to create ticket.' });
-  }
+  const now = new Date().toISOString();
+  db.prepare('UPDATE nexus_calls SET status=?, updated_at=? WHERE id=?').run('escalated', now, call.id);
+  logAudit(db, { ...actorFromReq(req), action: AUDIT_ACTIONS.CALL_ESCALATED, resource_type: 'nexus_call', resource_id: call.id });
+  req.session.flash = { success: 'Call escalated.' };
+  res.redirect('/nexus/calls');
 });
 
-// ─── Live status polling ──────────────────────────────────────────────────────
+// ── Convert call to ticket ────────────────────────────────────────────────────
+router.post('/calls/:id/to-ticket', requireAuth, (req, res) => {
+  const db   = getDb();
+  const call = db.prepare('SELECT * FROM nexus_calls WHERE id=?').get(req.params.id);
+  if (!call) return res.redirect('/nexus/calls');
 
-router.get('/calls/api/status', requireAuth, (req, res) => {
-  try {
-    const db = getDb();
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const counts = {
-      active:         db.prepare("SELECT COUNT(*) as c FROM call_events WHERE status='active'").get().c,
-      onHold:         db.prepare("SELECT COUNT(*) as c FROM call_events WHERE status='on-hold'").get().c,
-      escalating:     db.prepare("SELECT COUNT(*) as c FROM call_events WHERE status='escalating'").get().c,
-      completedToday: db.prepare("SELECT COUNT(*) as c FROM call_events WHERE status='completed' AND updated_at >= ?").get(todayStart.toISOString()).c,
-    };
-    const activeCalls = db.prepare(`
-      SELECT ce.*, u.name as assigned_name FROM call_events ce
-      LEFT JOIN users u ON u.id = ce.assigned_user_id
-      WHERE ce.status IN ('active','on-hold','escalating') ORDER BY ce.created_at ASC
-    `).all();
-    return res.json({ ok: true, counts, activeCalls });
-  } catch (err) {
-    return res.status(500).json({ ok: false, error: err.message });
-  }
-});
+  const { nextTicketNumber } = require('../database');
+  const { validateCategory, validatePriority: vp } = require('../middleware/validate');
 
-// ─── Escalation List ──────────────────────────────────────────────────────────
+  const ticket_id     = uuidv4();
+  const ticket_number = nextTicketNumber(db);
+  const now           = new Date().toISOString();
+  const user          = req.session.user;
+  const priority      = vp(call.priority) || 'P3';
+  const category      = validateCategory(req.body.category) || 'general';
 
-router.get('/escalation', requireAdmin, (req, res) => {
-  const db = getDb();
-  const escalationList = db.prepare(`
-    SELECT el.*, u.name, u.email, u.role FROM escalation_list el
-    JOIN users u ON u.id = el.user_id ORDER BY el.priority_order ASC
-  `).all();
-  res.render('escalation', { title: 'Escalation Order', escalationList, user: req.session.user, unreadCount: res.locals.unreadCount, csrfToken: res.locals.csrfToken });
-});
+  db.prepare(`
+    INSERT INTO tickets (id, ticket_number, title, description, priority, category, status, assigned_to, created_by, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,'open',?,?,?,?)
+  `).run(ticket_id, ticket_number, call.subject, call.description || null, priority, category, call.assigned_to, user.id, now, now);
 
-router.post('/escalation/reorder', requireAdmin, (req, res) => {
-  try {
-    const db    = getDb();
-    const order = req.body.order;
-    if (!Array.isArray(order)) return res.status(400).json({ ok: false, error: 'order must be array' });
-    const now  = new Date().toISOString();
-    const stmt = db.prepare('UPDATE escalation_list SET priority_order=?, availability=?, updated_at=? WHERE user_id=?');
-    for (const item of order) {
-      const uid   = sanitizeString(String(item.userId), 36);
-      const avail = ['on-shift','on-call','unavailable','out-of-service'].includes(item.availability) ? item.availability : 'unavailable';
-      stmt.run(parseInt(item.priorityOrder) || 0, avail, now, uid);
-    }
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error('[nexus/escalation/reorder]', err.message);
-    return res.status(500).json({ ok: false, error: 'Failed to reorder.' });
-  }
-});
+  db.prepare('UPDATE nexus_calls SET ticket_id=?, updated_at=? WHERE id=?').run(ticket_id, now, call.id);
 
-router.post('/escalation/availability', requireAdmin, (req, res) => {
-  try {
-    const db           = getDb();
-    const userId       = sanitizeString(req.body.userId, 36);
-    const availability = ['on-shift','on-call','unavailable','out-of-service'].includes(req.body.availability) ? req.body.availability : null;
-    if (!userId || !availability) return res.status(400).json({ ok: false, error: 'userId and valid availability required' });
-    db.prepare('UPDATE escalation_list SET availability=?, updated_at=? WHERE user_id=?').run(availability, new Date().toISOString(), userId);
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error('[nexus/escalation/availability]', err.message);
-    return res.status(500).json({ ok: false, error: 'Failed to update availability.' });
-  }
-});
-
-// ─── Tech Scheduler ───────────────────────────────────────────────────────────
-
-router.get('/scheduler', requireAdmin, (req, res) => {
-  const db    = getDb();
-  const dates = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    dates.push(d.toISOString().slice(0, 10));
-  }
-  const techs        = db.prepare("SELECT id, name, role FROM users WHERE role IN ('admin','tech') ORDER BY name").all();
-  const scheduleRows = db.prepare('SELECT * FROM tech_schedule WHERE date >= ? AND date <= ?').all(dates[0], dates[6]);
-  const scheduleMap  = {};
-  for (const row of scheduleRows) {
-    if (!scheduleMap[row.user_id]) scheduleMap[row.user_id] = {};
-    scheduleMap[row.user_id][row.date] = row;
-  }
-  const escalationList = db.prepare('SELECT el.*, u.name FROM escalation_list el JOIN users u ON u.id = el.user_id ORDER BY el.priority_order ASC').all();
-  res.render('scheduler', { title: 'Tech Scheduler', dates, techs, scheduleMap, escalationList, user: req.session.user, unreadCount: res.locals.unreadCount, csrfToken: res.locals.csrfToken });
-});
-
-router.post('/scheduler/save', requireAdmin, (req, res) => {
-  try {
-    const db      = getDb();
-    const userId  = sanitizeString(req.body.userId, 36);
-    const date    = validateDate(req.body.date);
-    if (!userId || !date) return res.status(400).json({ ok: false, error: 'Valid userId and date required' });
-    const shiftStart = sanitizeString(req.body.shiftStart, 10);
-    const shiftEnd   = sanitizeString(req.body.shiftEnd, 10);
-    const onCall     = req.body.onCall === 'true' || req.body.onCall === '1' || req.body.onCall === true ? 1 : 0;
-    const notes      = sanitizeString(req.body.notes, 500);
-    const now        = new Date().toISOString();
-    db.prepare(`
-      INSERT INTO tech_schedule (id, user_id, date, shift_start, shift_end, on_call, notes, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?)
-      ON CONFLICT(user_id, date) DO UPDATE SET
-        shift_start=excluded.shift_start, shift_end=excluded.shift_end,
-        on_call=excluded.on_call, notes=excluded.notes, updated_at=excluded.updated_at
-    `).run(uuidv4(), userId, date, shiftStart, shiftEnd, onCall, notes, now, now);
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error('[nexus/scheduler/save]', err.message);
-    return res.status(500).json({ ok: false, error: 'Failed to save schedule.' });
-  }
+  logAudit(db, { ...actorFromReq(req), action: AUDIT_ACTIONS.TICKET_CREATED, resource_type: 'ticket', resource_id: ticket_id, new_value: `from call ${call.call_number}` });
+  req.session.flash = { success: `Ticket ${ticket_number} created from call.` };
+  res.redirect(`/tickets/${ticket_id}`);
 });
 
 module.exports = router;

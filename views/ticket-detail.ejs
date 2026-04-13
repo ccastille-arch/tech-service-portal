@@ -51,6 +51,80 @@
 
           <!-- Details Tab -->
           <div class="tab-panel active" id="tab-details">
+
+            <%# ── WORKFLOW PANEL ──────────────────────────────────────────── %>
+            <% if (ticket.status === 'closed') { %>
+            <div class="card mb-2" style="border-left:3px solid var(--success);background:rgba(0,212,160,.06);">
+              <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;">
+                <span style="font-size:1.2rem;">✅</span>
+                <div>
+                  <div style="font-weight:700;color:var(--success);">Ticket Closed — <%= ticket.closure_status || 'resolved' %></div>
+                  <div style="font-size:.8rem;color:var(--text-muted);">
+                    Closed by <%= ticket.closed_by_name || 'unknown' %><% if (ticket.closed_at) { %> · <span data-ts="<%= ticket.closed_at %>" data-ts-fmt="short">--</span><% } %>
+                  </div>
+                  <% if (ticket.final_notes) { %>
+                  <div style="margin-top:.4rem;font-size:.875rem;color:var(--text);">📋 <em><%= ticket.final_notes %></em></div>
+                  <% } %>
+                </div>
+              </div>
+            </div>
+
+            <% } else if (ticket.finalized_at) { %>
+            <div class="card mb-2" style="border-left:3px solid var(--secondary);background:rgba(0,200,232,.05);">
+              <div style="font-weight:700;color:var(--secondary);margin-bottom:.4rem;">⚡ Resolution Finalized — Ready to Close</div>
+              <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem;">
+                Finalized by <%= ticket.finalized_by_name || 'unknown' %><% if (ticket.finalized_at) { %> · <span data-ts="<%= ticket.finalized_at %>" data-ts-fmt="short">--</span><% } %>
+              </div>
+              <form method="POST" action="/tickets/<%= ticket.id %>/close" style="display:grid;gap:.75rem;">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <div class="form-group">
+                  <label class="form-label" style="font-weight:700;">Closure Status <span style="color:var(--danger);">*</span></label>
+                  <select class="form-control" name="closure_status" required>
+                    <option value="">— Select outcome —</option>
+                    <option value="resolved">✅ Resolved</option>
+                    <option value="unresolved">⚠️ Unresolved</option>
+                    <option value="escalated">🔺 Escalated</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-weight:700;">Final Notes <span style="color:var(--danger);">*</span></label>
+                  <textarea class="form-control" name="final_notes" rows="4" required minlength="5"
+                    placeholder="Describe the resolution, steps taken, or reason for closure. Required before closing."></textarea>
+                </div>
+                <button type="submit" class="btn btn-success" style="font-size:1rem;padding:.6rem 1.5rem;"
+                  onclick="return confirm('Close this ticket? This cannot be undone.')">
+                  ✅ Close Ticket &amp; Submit
+                </button>
+              </form>
+            </div>
+
+            <% } else { %>
+            <div class="card mb-2" style="border-left:3px solid var(--text-muted);background:rgba(255,255,255,.02);">
+              <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;">
+                <div>
+                  <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);margin-bottom:.2rem;">Ticket Workflow</div>
+                  <div style="font-size:.875rem;color:var(--text);">
+                    <span style="color:var(--text-muted);">Create</span>
+                    <span style="color:var(--text-muted);margin:0 .4rem;">→</span>
+                    <span style="color:var(--text-muted);">Add Notes</span>
+                    <span style="color:var(--text-muted);margin:0 .4rem;">→</span>
+                    <strong style="color:var(--secondary);">Finalize</strong>
+                    <span style="color:var(--text-muted);margin:0 .4rem;">→</span>
+                    <span style="color:var(--text-muted);">Close</span>
+                  </div>
+                </div>
+                <form method="POST" action="/tickets/<%= ticket.id %>/finalize">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                  <button type="submit" class="btn btn-secondary btn-sm"
+                    onclick="return confirm('Finalize this resolution? Marks ticket completed and unlocks the Close step.')">
+                    ⚡ Finalize Resolution
+                  </button>
+                </form>
+              </div>
+            </div>
+            <% } %>
+
+            <% if (ticket.status !== 'closed') { %>
             <div class="card mb-2">
               <form method="POST" action="/tickets/<%= ticket.id %>">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>">
@@ -108,6 +182,7 @@
                 <button type="submit" class="btn btn-primary">Save Changes</button>
               </form>
             </div>
+            <% } %>
           </div>
 
           <!-- Comments Tab -->
@@ -201,9 +276,9 @@
             <% } else { %>
             <div class="attachments-grid">
               <% for (const a of attachments) { %>
-              <a href="/public/uploads/<%= a.filename %>" target="_blank" class="attachment-item">
+              <a href="/tickets/files/<%= a.id %>" target="_blank" class="attachment-item">
                 <% if (a.mimetype && a.mimetype.startsWith('image/')) { %>
-                <img src="/public/uploads/<%= a.filename %>" alt="<%= a.original_name %>" class="attachment-preview">
+                <img src="/tickets/files/<%= a.id %>" alt="<%= a.original_name %>" class="attachment-preview">
                 <% } else { %>
                 <div class="attachment-icon">📄</div>
                 <% } %>
