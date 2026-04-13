@@ -242,9 +242,12 @@ router.get('/live/assets', requireAuth, async (req, res) => {
       for (const r of records.slice(0, 100)) {
         assets.push({
           source: 'enbase',
-          id: r.id || r.assetId || r.assetID,
-          name: r.name || r.assetName || String(r.id),
-          type: r.type || r.assetType || 'Asset',
+          id: r.AssetId || r.assetId || r.id,
+          name: r.DisplayName || r.AssetNumber || r.AssetDescription || String(r.AssetId || r.id),
+          type: r.AssetTypeName || 'Asset',
+          customer: r.CustomerName || '',
+          location: r.AssetLocationDescription || r.LocationName || '',
+          status: r.MonitoringStatusName || '',
         });
       }
     }
