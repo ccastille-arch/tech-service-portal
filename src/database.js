@@ -397,7 +397,7 @@ function seedUsers(db) {
       `).run(uuidv4(), u.username, u.email, hash, u.name, u.role, now, now);
     } else {
       // Always sync password and role on boot
-      db.prepare('UPDATE users SET password_hash=?, role=?, is_active=1, login_attempts=0, locked_until=NULL, updated_at=? WHERE username=?')
+      db.prepare('UPDATE users SET password_hash=?, role=?, login_attempts=0, locked_until=NULL, updated_at=? WHERE username=?')
         .run(hash, u.role, now, u.username);
     }
   }
