@@ -382,18 +382,23 @@ function seedUsers(db) {
   const adminPw = process.env.ADMIN_PASSWORD || 'Brayden25!';
   const users = [
     { username: 'cody', email: 'cody@localhost', name: 'Cody Castille', role: 'admin', password: adminPw },
-    { username: 'austin.whitehurst', email: 'austin.whitehurst@techservices.local', name: 'Austin Whitehurst', role: 'tech', password: 'AustinTech#2025' },
-    { username: 'clint.webb', email: 'clint.webb@techservices.local', name: 'Clint Webb', role: 'tech', password: 'ClintTech#2025' }
+    { username: 'austin.whitehurst', email: 'austin.whitehurst@techservices.local', name: 'Austin Whitehurst', role: 'admin', password: 'AustinTech#2025' },
+    { username: 'clint.webb', email: 'clint.webb@techservices.local', name: 'Clint Webb', role: 'tech', password: 'ClintTech#2025' },
+    { username: 'system', email: 'system@techservices.local', name: 'System', role: 'tech', password: uuidv4() }
   ];
 
   for (const u of users) {
     const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(u.username);
+    const hash = bcrypt.hashSync(u.password, 12);
     if (!existing) {
-      const hash = bcrypt.hashSync(u.password, 12);
       db.prepare(`
         INSERT OR IGNORE INTO users (id, username, email, password_hash, name, role, login_attempts, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
       `).run(uuidv4(), u.username, u.email, hash, u.name, u.role, now, now);
+    } else {
+      // Always sync password and role on boot
+      db.prepare('UPDATE users SET password_hash=?, role=?, is_active=1, login_attempts=0, locked_until=NULL, updated_at=? WHERE username=?')
+        .run(hash, u.role, now, u.username);
     }
   }
 }
